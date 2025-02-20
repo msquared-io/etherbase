@@ -1,0 +1,46 @@
+{
+  "name": "server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run serve",
+    "dev:client": "cd mml-document && npm run start",
+    "build": "cd mml-document && npm run build",
+    "serve": "cross-env DEV=true PORT=20205 tsx --enable-source-maps ./src/index.ts",
+    "start": "tsx --enable-source-maps ./src/index.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint \"./src/**/*.{js,jsx,ts,tsx}\" --max-warnings 0",
+    "lint-fix": "eslint \"./src/**/*.{js,jsx,ts,tsx}\" --fix",
+    "postinstall": "cd mml-document && npm install && npm run build"
+  },
+  "dependencies": {
+    "@msquared/etherbase-client": "^0.1.0",
+    "@types/chokidar": "^2.1.7",
+    "@types/cors": "2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/express-ws": "^3.0.5",
+    "chokidar": "^3.6.0",
+    "cors": "^2.8.5",
+    "esbuild": "^0.25.0",
+    "esbuild-plugin-copy": "^2.1.1",
+    "express": "^4.21.2",
+    "express-ws": "^5.0.2",
+    "mml-web-client": "0.18.1",
+    "networked-dom-server": "0.18.1",
+    "util": "^0.12.5"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "eslint": "9.11.1",
+    "eslint-config-prettier": "9.1.0",
+    "eslint-plugin-prettier": "5.2.1",
+    "eslint-plugin-simple-import-sort": "12.1.1",
+    "tsx": "^4.19.2",
+    "typescript": "5.7.3",
+    "typescript-eslint": "8.7.0"
+  }
+}

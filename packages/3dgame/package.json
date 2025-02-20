@@ -1,0 +1,33 @@
+{
+  "name": "3dgame",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev-local": "NEXT_PUBLIC_USE_LOCAL_BACKEND=true next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "bots": "node --loader ts-node/esm src/bots.ts"
+  },
+  "dependencies": {
+    "@msquared/etherbase-client": "*",
+    "@react-three/drei": "^9.121.4",
+    "@react-three/fiber": "^8.17.14",
+    "framer-motion": "^12.1.0",
+    "next": "14.2.18",
+    "react": "^18",
+    "react-dom": "^18",
+    "three": "^0.173.0",
+    "viem": "^2.23.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

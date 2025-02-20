@@ -1,0 +1,7 @@
+packages/backend/src/*
+packages/backend/tests/*
+!packages/backend/src/abi/*
+!packages/backend/tests/abi/*
+!packages/backend/src/routes/*
+!packages/backend/src/services/*
+!packages/backend/src/websockets/emitEvent.socket.ts

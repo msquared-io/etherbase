@@ -1,0 +1,13 @@
+{
+  "name": "root",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "deploy": "bash scripts/deploy.sh"
+  },
+  "dependencies": {
+    "@msquared/etherbase-client": "^0.1.0"
+  }
+}

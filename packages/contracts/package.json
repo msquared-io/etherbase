@@ -1,0 +1,32 @@
+{
+  "name": "hardhat-project",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ignition-viem": "^0.15.9",
+    "@types/chai": "^5.0.1",
+    "chai": "^4.2.0",
+    "hardhat": "^2.22.18"
+  },
+  "scripts": {
+    "compile": "npx hardhat compile --network localhost",
+    "start:node": "npx hardhat node",
+    "local:deploy": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Etherbase.ts --network localhost",
+    "somnia:deploy": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Etherbase.ts --network somnia",
+    "somnia:deploy:test": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Test.ts --network somnia",
+    "somnia:deploy:my-contract": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/MyContract.ts --network somnia",
+    "local:deploy:multicall3": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Multicall3.ts --network localhost",
+    "somnia:deploy:multicall3": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Multicall3.ts --network somnia",
+    "local:deploy:counter": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Counter.ts --network localhost",
+    "somnia:deploy:counter": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Counter.ts --network somnia",
+    "local:deploy-test": "rm -rf ignition/deployments && npx hardhat compile && npx hardhat ignition deploy ignition/modules/Testing.ts --network localhost",
+    "local:deploy-script": "hardhat run scripts/deploy.ts --network localhost",
+    "somnia:deploy-script": "hardhat run scripts/deploy.ts --network somnia"
+  },
+  "dependencies": {
+    "@nomicfoundation/hardhat-viem": "^2.0.6",
+    "@openzeppelin/contracts": "^5.2.0",
+    "ethers": "^6.13.5",
+    "sevm": "^0.7.4",
+    "solc-typed-ast": "^18.2.4",
+    "viem": "^2.22.11"
+  }
+}

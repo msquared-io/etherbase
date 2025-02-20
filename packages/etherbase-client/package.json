@@ -1,0 +1,57 @@
+{
+  "name": "@msquared/etherbase-client",
+  "version": "0.1.0",
+  "description": "React hooks for interacting with Etherbase smart contracts",
+  "homepage": "https://github.com/msquared-io/spike-etherbase/packages/etherbase-client#readme",
+  "license": "MIT",
+  "keywords": [
+    "msquared"
+  ],
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "npm run clean && run-p build:*",
+    "clean": "rm -rf dist",
+    "watch": "npm run clean && npm-run-all --parallel watch:*",
+    "build:cjs": "esbuild ./src/index.ts ./src/server/index.ts --outdir=./dist/cjs --platform=node --bundle --external:react --external:viem --format=cjs",
+    "watch:cjs": "npm run build:cjs -- --watch",
+    "build:esm": "esbuild ./src/index.ts ./src/server/index.ts --outdir=./dist/esm --platform=browser --bundle --main-fields=main --external:react --external:viem --format=esm",
+    "watch:esm": "npm run build:esm -- --watch",
+    "build:types": "tsc --declarationDir ./dist/types",
+    "watch:types": "npm run build:types -- --watch",
+    "ts:fmt:fix": "biome format --write",
+    "ts:type-check": "tsc --incremental --pretty --noEmit",
+    "ts:check": "biome check",
+    "ts:check:fix": "biome check --write",
+    "ts:depcheck": "depcheck",
+    "test": "vitest",
+    "ts:validate": "run-s ts:type-check ts:check ts:depcheck"
+  },
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./server": {
+      "types": "./dist/types/server/index.d.ts",
+      "import": "./dist/esm/server/index.js",
+      "require": "./dist/cjs/server/index.js"
+    }
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "viem": ">=2.22.19"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "depcheck": "^1.4.7",
+    "esbuild": "^0.25.0",
+    "npm-run-all": "^4.1.5",
+    "react": "^18.2.0",
+    "typescript": "^5.0.0",
+    "viem": "^2.22.19"
+  }
+}
