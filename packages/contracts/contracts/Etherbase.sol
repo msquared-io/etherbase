@@ -15,23 +15,23 @@ contract Etherbase {
     
     struct CustomContract {
         address contractAddress;
-        string name;
-        string[] eventNames;
+        address addedBy;
         string contractABI;
-        mapping(string => EventSchema) eventSchemas;
     }
 
     mapping(address => CustomContract) public customContracts;
     address[] public customContractAddresses;
 
     event SourceCreated(address indexed sourceAddress, address indexed owner);
-    event CustomContractAdded(address indexed contractAddress, string name);
+    event CustomContractAdded(address indexed contractAddress);
+    event CustomContractDeleted(address indexed contractAddress);
     event CustomContractSchemaAdded(address indexed contractAddress, string eventName);
 
     // Add custom errors at the contract level
     error ContractAlreadyExists();
     error EmptyContractABI();
     error ContractNotFound();
+    error NotAuthorized();
 
     constructor(address _validator) {
         validator = _validator;
@@ -41,15 +41,15 @@ contract Etherbase {
         EtherbaseSource newSource = new EtherbaseSource(msg.sender, validator);
         sources.push(SourceInfo({
             sourceAddress: address(newSource),
-            owner: msg.sender
+            owner: newSource.owner()
         }));
-        emit SourceCreated(address(newSource), msg.sender);
+
+        emit SourceCreated(address(newSource), newSource.owner());
         return address(newSource);
     }
 
     function addCustomContract(
         address contractAddress, 
-        string memory name,
         string memory contractABI
     ) public {
         if (customContracts[contractAddress].contractAddress != address(0)) {
@@ -61,79 +61,58 @@ contract Etherbase {
         
         CustomContract storage newContract = customContracts[contractAddress];
         newContract.contractAddress = contractAddress;
-        newContract.name = name;
+        newContract.addedBy = msg.sender;
         newContract.contractABI = contractABI;
-        newContract.eventNames = new string[](0);
         customContractAddresses.push(contractAddress);
         
-        emit CustomContractAdded(contractAddress, name);
+        emit CustomContractAdded(contractAddress);
     }
 
-    function addCustomContractSchema(
-        address contractAddress,
-        string memory name,
-        string memory id,
-        bytes32 eventTopic,
-        Argument[] memory args
-    ) public {
-        require(customContracts[contractAddress].contractAddress != address(0), "Contract not found");
-
-        CustomContract storage contractObject = customContracts[contractAddress];
-        
-        // Check if event name already exists
-        require(bytes(contractObject.eventSchemas[name].name).length == 0, "Event name already registered");
-        
-        // Count indexed arguments
-        uint8 numIndexedArgs = 0;
-        for (uint256 i = 0; i < args.length; i++) {
-            if (args[i].isIndexed) {
-                numIndexedArgs++;
-            }
-        }
-        require(numIndexedArgs <= 3, "Too many indexed arguments");
-
-        // Store the schema
-        EventSchema storage newSchema = contractObject.eventSchemas[name];
-        newSchema.name = name;
-        newSchema.id = id;
-        newSchema.eventTopic = eventTopic;
-        newSchema.numIndexedArgs = numIndexedArgs;
-        
-        // Store arguments
-        for (uint256 i = 0; i < args.length; i++) {
-            newSchema.args.push(args[i]);
-        }
-
-        contractObject.eventNames.push(name);
-
-        emit CustomContractSchemaAdded(contractAddress, name);
-    }
-
-    function getCustomContracts() public view returns (address[] memory) {
-        return customContractAddresses;
-    }
-
-    function getCustomContractEventNames(address contractAddress) public view returns (string[] memory) {
-        return customContracts[contractAddress].eventNames;
-    }
-
-    function getCustomContractSchema(address contractAddress, string memory eventName) 
-        public view returns (EventSchema memory) {
-        return customContracts[contractAddress].eventSchemas[eventName];
-    }
-
-    function getCustomContractABI(address contractAddress) 
-        public view returns (string memory) {
+    function deleteCustomContract(address contractAddress) public {
         if (customContracts[contractAddress].contractAddress == address(0)) {
             revert ContractNotFound();
         }
-        return customContracts[contractAddress].contractABI;
+        if (customContracts[contractAddress].addedBy != msg.sender) {
+            revert NotAuthorized();
+        }
+        
+        delete customContracts[contractAddress];
+        for (uint256 i = 0; i < customContractAddresses.length; i++) {
+            if (customContractAddresses[i] == contractAddress) {
+                customContractAddresses[i] = customContractAddresses[customContractAddresses.length - 1];
+                customContractAddresses.pop();
+                break;
+            }
+        }
+
+        emit CustomContractDeleted(contractAddress);
+    }
+
+    function getCustomContracts() public view returns (CustomContract[] memory) {
+        CustomContract[] memory _customContracts = new CustomContract[](customContractAddresses.length);
+        for (uint256 i = 0; i < customContractAddresses.length; i++) {
+            address contractAddress = customContractAddresses[i];
+            CustomContract memory customContract = customContracts[contractAddress];
+            _customContracts[i].contractAddress = contractAddress;
+            _customContracts[i].addedBy = customContract.addedBy;
+            _customContracts[i].contractABI = customContract.contractABI;
+        }
+        return _customContracts;
+    }
+
+    function getCustomContract(address contractAddress) 
+        public view returns (CustomContract memory) {
+        if (customContracts[contractAddress].contractAddress == address(0)) {
+            revert ContractNotFound();
+        }
+        return customContracts[contractAddress];
     }
 
     function getSources() public view returns (SourceInfo[] memory) {
         SourceInfo[] memory _sources = new SourceInfo[](sources.length);
         for (uint256 i = 0; i < sources.length; i++) {
-            _sources[i] = sources[i];
+            _sources[i].sourceAddress = sources[i].sourceAddress;
+            _sources[i].owner = sources[i].owner;
         }
         return _sources;
     }

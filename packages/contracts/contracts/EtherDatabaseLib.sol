@@ -94,6 +94,18 @@ abstract contract EtherDatabaseLib {
         bytes memory encodedData
     ) internal {
         bytes memory path = _encodePath(segments);
+        if (dataType == DataType.NONE) {
+            // If type is NONE, treat it as a removal
+            if (storeExists[path]) {
+                uint256 index = storeIndex[path];
+                store[index].exists = false;
+                delete storeIndex[path];
+                delete storeExists[path];
+            }
+            emit EthDBPathUpdate(segments, bytes(""), uint8(DataType.NONE));
+            return;
+        }
+
         if (storeExists[path]) {
             // Update existing entry
             uint256 index = storeIndex[path];

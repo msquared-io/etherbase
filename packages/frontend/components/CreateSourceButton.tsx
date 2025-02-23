@@ -1,14 +1,20 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useEtherbase } from "@msquared/etherbase-client"
+import { useRouter } from "next/navigation"
 
-export default function CreateSourceButton() {
+type CreateSourceButtonProps = Readonly<{
+  fetchSources: () => Promise<void>
+}>
+
+export default function CreateSourceButton({
+  fetchSources,
+}: CreateSourceButtonProps) {
   const [isCreating, setIsCreating] = useState(false)
+  const { createSource } = useEtherbase()
   const router = useRouter()
-  const { fetchSources, createSource } = useEtherbase()
 
   const handleCreate = useCallback(async () => {
     try {
@@ -16,16 +22,13 @@ export default function CreateSourceButton() {
       const { sourceAddress } = await createSource()
       console.log("Created source at:", sourceAddress)
 
-      await fetchSources()
-
-      // Refresh the page to show new emitter
-      router.refresh()
+      router.push(`/sources/${sourceAddress}`)
     } catch (error) {
       console.error("Error creating source:", error)
     } finally {
       setIsCreating(false)
     }
-  }, [router, createSource, fetchSources])
+  }, [createSource, router])
 
   return (
     <Button

@@ -68,24 +68,20 @@ func buildUpdates(client *subscription.Client, payload *streaming.ViewCallback) 
 
 		// Process each subscription's updates
 		for subscriptionID, txUpdates := range updatesBySubAndTx {
-			log.Printf("Processing subscription %s with %d updates", subscriptionID, len(txUpdates))
 			subscription := client.GetStateSubscription(subscriptionID)
 			if subscription == nil {
 				continue
 			}
  
 			if subscription.Options.CombineStateUpdatesFromSameContract {
-				log.Printf("Combining state updates for subscription %s", subscriptionID)
 				// Combine updates from the same contract
 				combinedState := make(map[string]interface{})
 				for _, stateUpdates := range txUpdates {
 					for _, update := range stateUpdates {
 						deepMerge(combinedState, update.State)
-						log.Printf("Combined state for subscription %s: %v", subscriptionID, combinedState)
 					}
 				}
 
-				log.Printf("Appending combined state for subscription %s: %v", subscriptionID, combinedState)
 				updates = append(updates, types.Update{
 					Type:           "state",
 					SubscriptionID: string(subscriptionID),

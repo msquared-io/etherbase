@@ -20,6 +20,7 @@ type Config struct {
 	LocalPrivateKey      string // For local usage
 	PrivateKey          string
 	PollingIntervalMS    int
+	ChainID              int
 }
 
 func LoadConfig() (*Config, error) {
@@ -36,7 +37,15 @@ func LoadConfig() (*Config, error) {
 	rpcURL := os.Getenv("RPC_URL")
 	if rpcURL == "" {
 		rpcURL = "wss://dream-rpc.somnia.network/ws"
+		// rpcURL = "ws://localhost:8545"
 	}
+
+	chainIDStr := os.Getenv("CHAIN_ID")
+	if chainIDStr == "" {
+		chainIDStr = "50312"
+		// chainIDStr = "31337"
+	}
+	chainID, _ := strconv.Atoi(chainIDStr)
 
 	intervalStr := os.Getenv("POLL_INTERVAL_MS")
 	if intervalStr == "" {
@@ -52,8 +61,9 @@ func LoadConfig() (*Config, error) {
 		LocalPrivateKey:   os.Getenv("LOCAL_PRIVATE_KEY"),
 		PrivateKey:        os.Getenv("PRIVATE_KEY"),
 		PollingIntervalMS: interval,
-		EtherbaseAddress:    common.HexToAddress("0x4B5c05B16Ef39a3a3E1AA8A5162acE704Fd6DC61"),
-		MulticallAddress:    common.HexToAddress("0x6ac4600Cc9F3c94ba5Ef63cAFB0b51f43083F31D"),
+		EtherbaseAddress:    common.HexToAddress("0x62F1B07877faC4E758794Dea44939CdCef5281a1"),
+		MulticallAddress:    common.HexToAddress("0x3fD7C31D0d2128aD2b83db6327CA73c1186f9EA1"),
+		ChainID:            chainID,
 	}, nil
 }
 

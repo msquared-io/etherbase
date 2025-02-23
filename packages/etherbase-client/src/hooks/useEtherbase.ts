@@ -2,12 +2,12 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import type { Address } from "viem"
+import type { Abi, Address } from "viem"
 import { useEtherbaseContext } from "../EtherbaseProvider"
 import { EtherbaseAbi } from "../abi/Etherbase"
 import { getConfig } from "../config"
-import { fetchSourcesData } from "../etherbase"
-import type { Source } from "./types/etherbase"
+import { fetchCustomContractsData, fetchSourcesData } from "../etherbase"
+import type { CustomContract, Source } from "./types/etherbase"
 import useWebThree from "./useWebThree"
 
 export default function useEtherbase() {
@@ -20,11 +20,12 @@ export default function useEtherbase() {
 
   useEffect(() => {
     async function fetchEtherbaseAddress() {
-      const etherbaseAddress = await fetch(`${httpReaderUrl}/etherbase-address`, {
-        cache: 'no-store'
-      }).then(
-        (res) => res.json(),
-      )
+      const etherbaseAddress = await fetch(
+        `${httpReaderUrl}/etherbase-address`,
+        {
+          cache: "no-store",
+        },
+      ).then((res) => res.json())
       console.log("Etherbase address:", etherbaseAddress)
       setEtherbaseAddress(etherbaseAddress)
     }
@@ -59,8 +60,8 @@ export default function useEtherbase() {
       }
 
       if (
-        !EtherbaseAbi.find((f: any) =>
-          f.type === "function" && f.name === writeFunctionName
+        !EtherbaseAbi.find(
+          (f) => f.type === "function" && f.name === writeFunctionName,
         )
       ) {
         throw new Error(`Invalid function name: ${writeFunctionName}`)
@@ -73,6 +74,7 @@ export default function useEtherbase() {
         functionName: writeFunctionName,
         // @ts-ignore
         args,
+        gas: 2000000n,
       })
       const receipt = await publicClient.waitForTransactionReceipt({ hash })
       console.log("Execute write receipt:", receipt)
@@ -95,5 +97,59 @@ export default function useEtherbase() {
     return { receipt, sourceAddress }
   }, [executeWrite])
 
-  return { createSource, sources, fetchSources }
+  const [customContracts, setCustomContracts] = useState<CustomContract[]>([])
+
+  const fetchCustomContracts = useCallback(async () => {
+    const customContracts = await fetchCustomContractsData()
+    setCustomContracts(customContracts)
+  }, [])
+
+  const addCustomContract = useCallback(
+    async (contractAddress: Address, contractAbi: string) => {
+      if (!window.ethereum) {
+        throw new Error("MetaMask not installed")
+      }
+
+      // validate contract is valid abi by checking there is at least one function and event
+      console.log("contractAbi", contractAbi)
+      const abi = JSON.parse(contractAbi) as Abi
+      if (
+        !abi.find((f) => f.type === "function") ||
+        !abi.find((f) => f.type === "event")
+      ) {
+        throw new Error(
+          "Invalid contract abi as it does not contain any functions or events. Make sure the abi you are providing is valid.",
+        )
+      }
+
+      console.log("Adding custom contract")
+      const receipt = await executeWrite("addCustomContract", [
+        contractAddress,
+        contractAbi,
+      ])
+
+      return receipt.status === "success"
+    },
+    [executeWrite],
+  )
+
+  const deleteCustomContract = useCallback(
+    async (contractAddress: Address) => {
+      const receipt = await executeWrite("deleteCustomContract", [
+        contractAddress,
+      ])
+      return receipt.status === "success"
+    },
+    [executeWrite],
+  )
+
+  return {
+    createSource,
+    sources,
+    fetchSources,
+    customContracts,
+    fetchCustomContracts,
+    addCustomContract,
+    deleteCustomContract,
+  }
 }

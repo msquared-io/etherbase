@@ -50,6 +50,74 @@ privateKey: "0x..."
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the game.
 
 If you'd like to run the game using a local backend, run `npm run dev-local`.
+
+
+## Blocks
+
+The blocks demo is available at [http://localhost:3000/blocks](http://localhost:3000/blocks).
+
+It uses `useEtherstore` to read and write state of voxel blocks to the Etherbase Source contract.
+
+We use the hook:
+
+```tsx
+const { state, loading, error, update } = useEtherstore([
+    sourceAddress,
+    "blocks",
+  ])
+```
+
+We want to store the position and type of each block whenever the user places a block using the left mouse button.
+
+To write to the state, we use the `update` function from the hook:
+
+```tsx
+const position = { x: 1, y: 2, z: 3 }
+const blockId = `${position.x},${position.y},${position.z}`
+const blockType = 1
+update({
+  blocks: {
+    [blockId]: { position, type: blockType },
+  },
+})
+```
+
+To read the state, we use `state` from the hook:
+
+```tsx
+  const [blocks, setBlocks] = useState<Map<string, Block>>(
+    () => new Map(initialBlocks),
+  )
+
+  useEffect(() => {
+      const newBlocks = new Map(initialBlocks)
+
+      for (const [key, blockData] of Object.entries(
+        state.blocks as EtherstoreState,
+      )) {
+        const pos = blockData.position as { x: number; y: number; z: number }
+
+        newBlocks.set(key, {
+          position: new THREE.Vector3(
+            pos.x,
+            pos.y,
+            pos.z,
+          ),
+          type: Number(blockData.type),
+        })
+      }
+      setBlocks(newBlocks)
+    }
+  }, [state, initialBlocks])
+```
+You could do the same thing without a `useEffect` by using the `onStateChange` callback from the hook.
+
+The user can also clear the blocks by clicking the C key:
+
+
+```tsx
+
+```

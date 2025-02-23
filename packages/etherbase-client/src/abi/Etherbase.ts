@@ -26,6 +26,11 @@ export const EtherbaseAbi = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "NotAuthorized",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -33,15 +38,22 @@ export const EtherbaseAbi = [
         "internalType": "address",
         "name": "contractAddress",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
       }
     ],
     "name": "CustomContractAdded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "contractAddress",
+        "type": "address"
+      }
+    ],
+    "name": "CustomContractDeleted",
     "type": "event"
   },
   {
@@ -91,66 +103,11 @@ export const EtherbaseAbi = [
       },
       {
         "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
         "name": "contractABI",
         "type": "string"
       }
     ],
     "name": "addCustomContract",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "contractAddress",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "id",
-        "type": "string"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "eventTopic",
-        "type": "bytes32"
-      },
-      {
-        "components": [
-          {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "argType",
-            "type": "string"
-          },
-          {
-            "internalType": "bool",
-            "name": "isIndexed",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct Argument[]",
-        "name": "args",
-        "type": "tuple[]"
-      }
-    ],
-    "name": "addCustomContractSchema",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -203,9 +160,9 @@ export const EtherbaseAbi = [
         "type": "address"
       },
       {
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
+        "internalType": "address",
+        "name": "addedBy",
+        "type": "address"
       },
       {
         "internalType": "string",
@@ -224,15 +181,9 @@ export const EtherbaseAbi = [
         "type": "address"
       }
     ],
-    "name": "getCustomContractABI",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
+    "name": "deleteCustomContract",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -243,78 +194,27 @@ export const EtherbaseAbi = [
         "type": "address"
       }
     ],
-    "name": "getCustomContractEventNames",
-    "outputs": [
-      {
-        "internalType": "string[]",
-        "name": "",
-        "type": "string[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "contractAddress",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "eventName",
-        "type": "string"
-      }
-    ],
-    "name": "getCustomContractSchema",
+    "name": "getCustomContract",
     "outputs": [
       {
         "components": [
           {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
+            "internalType": "address",
+            "name": "contractAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "addedBy",
+            "type": "address"
           },
           {
             "internalType": "string",
-            "name": "id",
+            "name": "contractABI",
             "type": "string"
-          },
-          {
-            "components": [
-              {
-                "internalType": "string",
-                "name": "name",
-                "type": "string"
-              },
-              {
-                "internalType": "string",
-                "name": "argType",
-                "type": "string"
-              },
-              {
-                "internalType": "bool",
-                "name": "isIndexed",
-                "type": "bool"
-              }
-            ],
-            "internalType": "struct Argument[]",
-            "name": "args",
-            "type": "tuple[]"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "eventTopic",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "uint8",
-            "name": "numIndexedArgs",
-            "type": "uint8"
           }
         ],
-        "internalType": "struct EventSchema",
+        "internalType": "struct Etherbase.CustomContract",
         "name": "",
         "type": "tuple"
       }
@@ -327,9 +227,26 @@ export const EtherbaseAbi = [
     "name": "getCustomContracts",
     "outputs": [
       {
-        "internalType": "address[]",
+        "components": [
+          {
+            "internalType": "address",
+            "name": "contractAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "addedBy",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "contractABI",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct Etherbase.CustomContract[]",
         "name": "",
-        "type": "address[]"
+        "type": "tuple[]"
       }
     ],
     "stateMutability": "view",

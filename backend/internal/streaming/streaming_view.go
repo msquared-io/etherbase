@@ -10,13 +10,14 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/msquared-io/etherbase/backend/internal/schema"
+	"github.com/msquared-io/etherbase/backend/internal/sources"
 	"github.com/msquared-io/etherbase/backend/internal/state"
 	"github.com/msquared-io/etherbase/backend/internal/subscription"
 	"github.com/msquared-io/etherbase/backend/internal/types"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
@@ -87,6 +88,7 @@ type SubscriptionResult struct {
 type StreamingView struct {
 	onFlush    func(updates *ViewCallback)
 	shouldStop atomic.Bool
+	updatesMu sync.RWMutex
 	// currentEventFilterState struct {
 	// 	Addresses []common.Address
 	// 	Events    []schema.EventSchema
@@ -133,15 +135,18 @@ func (sv *StreamingView) Start(ctx context.Context) error {
 			select {
 			case err := <-sub.Err():
 				log.Printf("Error in block subscription: %v", err)
-				return
+				// return // dont return as we want to keep the subscription alive and retry
 			case header := <-headers:
 				if sv.shouldStop.Load() {
 					return
 				}
 
-				if err := sv.handleNewBlock(ctx, header); err != nil {
-					log.Printf("Error handling block: %v", err)
-				}
+				log.Printf("Processing block %d", header.Number.Uint64())
+				go func() {
+					if err := sv.handleNewBlock(ctx, header); err != nil {
+						log.Printf("Error handling block: %v", err)
+					}
+				}()
 			case <-ctx.Done():
 				return
 			}
@@ -156,9 +161,25 @@ func (sv *StreamingView) Stop() {
 	sv.shouldStop.Store(true)
 }
 
+type Transaction struct {
+	Hash common.Hash `json:"hash"`
+}
+
+type Transactions []Transaction
+
+type Block struct {
+	Transactions Transactions `json:"transactions"`
+}
+
 func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.Header) error {
+	if header.TxHash == ethTypes.EmptyTxsHash {
+		log.Printf("Skipping empty block %d", header.Number.Uint64())
+		return nil
+	}
+	
 	blockNumber := header.Number.Uint64()
-	log.Printf("Processing block %d", blockNumber)
+	startTime := time.Now()
+	log.Printf("Processing block %d, start time: %v", blockNumber, startTime)
 
 	// Skip if we've already processed this block
 	sv.lastProcessedMu.RLock()
@@ -168,21 +189,58 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 	}
 	sv.lastProcessedMu.RUnlock()
 
+	// consider changing to pendng so we get it faster?
 
-	// Create filter query for this block
-	// sv.filterStateMu.RLock()
-	query := ethereum.FilterQuery{
-		FromBlock: big.NewInt(int64(blockNumber)),
-		ToBlock:   big.NewInt(int64(blockNumber)),
-		// Addresses: sv.currentEventFilterState.Addresses,
-	}
-	// sv.filterStateMu.RUnlock()
-
-
-	// Get all logs for the block
-	logs, err := sv.client.FilterLogs(ctx, query)
+	var raw json.RawMessage
+	err := sv.client.Client().CallContext(ctx, &raw, "eth_getBlockByHash", header.Hash(), true)
 	if err != nil {
-		return fmt.Errorf("failed to get logs: %w", err)
+		return fmt.Errorf("failed to get block: %w", err)
+	}
+ 
+	var head *ethTypes.Header
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return fmt.Errorf("failed to unmarshal header: %w", err)
+	}
+	if head == nil {
+		return fmt.Errorf("block not found")
+	}
+
+	var body Block
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return fmt.Errorf("failed to unmarshal block: %w", err)
+	}
+
+	// async wait for all receipts
+	receipts := make([]ethTypes.Receipt, len(body.Transactions))
+	var wg sync.WaitGroup
+	wg.Add(len(body.Transactions))
+
+	for i, tx := range body.Transactions {
+		go func(i int, txHash common.Hash) {
+			defer wg.Done()
+			receipt, err := sv.client.TransactionReceipt(ctx, txHash)
+			if err != nil {
+				log.Printf("Failed to get receipt for tx %s: %v", txHash.String(), err)
+				return
+			}
+			receipts[i] = *receipt
+		}(i, tx.Hash)
+	}
+
+	wg.Wait()
+
+	log.Printf("Got receipts in %v", time.Since(startTime))
+
+	transactions := body.Transactions
+	if len(transactions) == 0 {
+		return fmt.Errorf("no transactions found in block %d but header says there are", blockNumber)
+	}
+
+	logs := make([]ethTypes.Log, 0)
+	for _, receipt := range receipts {
+		for _, log := range receipt.Logs {
+			logs = append(logs, *log)
+		}
 	}
 
 	if len(logs) == 0 {
@@ -204,6 +262,10 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 	}
 
 	log.Printf("Decoded %d events from %d logs in block %d", len(decodedResult.DecodedEvents), len(logs), blockNumber)
+
+	// we lock the function here as the below are not thread safe
+	sv.updatesMu.Lock()
+	defer sv.updatesMu.Unlock()
 
 	// Get updates from all events
 	updates, err := sv.getUpdatesFromEvents(ctx, decodedResult.DecodedEvents)
@@ -234,6 +296,7 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 	}
 	sv.lastProcessedMu.Unlock()
 
+	log.Printf("Processed block %d in %v", blockNumber, time.Since(startTime))
 	return nil
 }
 
@@ -285,12 +348,9 @@ func (sv *StreamingView) getUpdatesFromEvents(ctx context.Context, decodedEvents
 	fullContractUpdates := make(map[common.Address]bool)
 	
 	for _, event := range decodedEvents {
-		log.Printf("Processing event %s from %s", event.Name, event.ContractAddress.Hex())
 		// Track transaction indices
-		if val, exists := sv.transactionHashes.Load(event.TransactionHash); !exists {
+		if _, exists := sv.transactionHashes.Load(event.TransactionHash); !exists {
 			sv.transactionHashes.Store(event.TransactionHash, uint(0))
-		} else {
-			sv.transactionHashes.Store(event.TransactionHash, val.(uint)+1)
 		}
 
 		eventSchema := schema.GetSchemaProvider().GetEventSchemaFromID(event.ContractAddress, event.ID)
@@ -530,68 +590,72 @@ func (sv *StreamingView) getSubscriptionsToEvent(eventSchema *schema.EventSchema
 				continue
 			}
 
-			// todo improve some of this logic
-			if stateSub.Options.Repoll.OnAnyContractEvent {
-				if _, exists := stateSubs[client.ID]; !exists {
-					stateSubs[client.ID] = make([]types.SubscriptionID, 0)
+			// we dont care about any event updates inside source contracts as we control them entirely
+			isContractSource := sources.GetSourceRegistry().IsSource(stateSub.ContractAddress)
+			if !isContractSource {
+				// todo improve some of this logic
+				if stateSub.Options.Repoll.OnAnyContractEvent {
+					if _, exists := stateSubs[client.ID]; !exists {
+						stateSubs[client.ID] = make([]types.SubscriptionID, 0)
+					}
+					stateSubs[client.ID] = append(stateSubs[client.ID], subID)
+					continue
 				}
-				stateSubs[client.ID] = append(stateSubs[client.ID], subID)
-				continue
-			}
 
-			// Check listenEvents
-			if len(stateSub.Options.Repoll.ListenEvents) > 0 {
-				for _, listenEvent := range stateSub.Options.Repoll.ListenEvents {
-					if listenEvent.Name == eventSchema.Name {
-						// if the listen event subscription has args, check if the decoded event matches the args
-						skip := false
-						for argName, argValues := range listenEvent.NonIndexedArgs {
-							decodedArgValue, ok := decodedEvent.NonIndexedArgs[argName]
-							if !ok {
-								// if the arg is not in the decoded event, continue
-								continue
+				// Check listenEvents
+				if len(stateSub.Options.Repoll.ListenEvents) > 0 {
+					for _, listenEvent := range stateSub.Options.Repoll.ListenEvents {
+						if listenEvent.Name == eventSchema.Name {
+							// if the listen event subscription has args, check if the decoded event matches the args
+							skip := false
+							for argName, argValues := range listenEvent.NonIndexedArgs {
+								decodedArgValue, ok := decodedEvent.NonIndexedArgs[argName]
+								if !ok {
+									// if the arg is not in the decoded event, continue
+									continue
+								}
+
+								// if decodedArgValue is bytes, convert to base64 string as that is what JSON unmarshals to
+								if decodedArgValueBytes, ok := decodedArgValue.([]byte); ok {
+									decodedArgValue = base64.StdEncoding.EncodeToString(decodedArgValueBytes)
+								} 
+
+								// compare the arg value as correct type, deep equal
+								for _, argValue := range argValues {
+									if !reflect.DeepEqual(decodedArgValue, argValue) {
+										skip = true
+										break
+									}
+								}
 							}
+							for argName, argValues := range listenEvent.IndexedArgs {
+								decodedArgValue, ok := decodedEvent.IndexedArgs[argName]
+								if !ok {
+									continue
+								}
 
-							// if decodedArgValue is bytes, convert to base64 string as that is what JSON unmarshals to
-							if decodedArgValueBytes, ok := decodedArgValue.([]byte); ok {
-								decodedArgValue = base64.StdEncoding.EncodeToString(decodedArgValueBytes)
-							} 
-
-							// compare the arg value as correct type, deep equal
-							for _, argValue := range argValues {
-								if !reflect.DeepEqual(decodedArgValue, argValue) {
+								exists := false
+								for _, argValue := range argValues {
+									if decodedArgValue == argValue {
+										exists = true
+										break
+									}
+								}
+								if !exists {
 									skip = true
 									break
 								}
 							}
-						}
-						for argName, argValues := range listenEvent.IndexedArgs {
-							decodedArgValue, ok := decodedEvent.IndexedArgs[argName]
-							if !ok {
+							if skip {
 								continue
 							}
 
-							exists := false
-							for _, argValue := range argValues {
-								if decodedArgValue == argValue {
-									exists = true
-									break
-								}
+							if _, exists := stateSubs[client.ID]; !exists {
+								stateSubs[client.ID] = make([]types.SubscriptionID, 0)
 							}
-							if !exists {
-								skip = true
-								break
-							}
+							stateSubs[client.ID] = append(stateSubs[client.ID], subID)
+							break
 						}
-						if skip {
-							continue
-						}
-
-						if _, exists := stateSubs[client.ID]; !exists {
-							stateSubs[client.ID] = make([]types.SubscriptionID, 0)
-						}
-						stateSubs[client.ID] = append(stateSubs[client.ID], subID)
-						break
 					}
 				}
 			}
@@ -640,7 +704,6 @@ func isPathPrefix(prefix []string, path []string) bool {
 }
 
 func (sv *StreamingView) handleEthDBPathUpdate(event DecodedEvent, stateSubscriptions map[types.ClientID][]types.SubscriptionID) ([]SubscriberStateUpdate, error) {
-	log.Printf("Handling EthDBPathUpdate event: %v for state subscriptions: %v", event, stateSubscriptions)
 	updates := make([]SubscriberStateUpdate, 0)
 
 	// Extract path and data from event args
@@ -659,30 +722,58 @@ func (sv *StreamingView) handleEthDBPathUpdate(event DecodedEvent, stateSubscrip
 		return nil, fmt.Errorf("invalid dataType in EthDBPathUpdate event")
 	}
 
+	log.Printf("Processing EthDBPathUpdate event with path %v and data type %d and data %v", path, dataType, data)
+
 	// todo verbose logging
 	// stdlog.Printf("Processing EthDBPathUpdate event with path %v and data type %d and data %v", path, dataType, data)
 
 	// Decode the value based on data type
+	// var value interface{}
+	// switch types.DataType(dataType) {
+	// case types.DataTypeNone:
+	// 	value = nil
+	// case types.DataTypeString:
+	// 	value = string(data)
+	// case types.DataTypeBool:
+	// 	value = len(data) > 0 && data[0] != 0
+	// case types.DataTypeUint256:
+	// 	value = new(big.Int).SetBytes(data)
+	// case types.DataTypeInt256:
+	// 	bigInt := new(big.Int).SetBytes(data)
+	// 	if bigInt.Bit(255) == 1 { // Check if negative
+	// 		bigInt.Sub(bigInt, new(big.Int).Lsh(big.NewInt(1), 256))
+	// 	}
+	// 	value = bigInt
+	// case types.DataTypeBytes:
+	// 	value = data
+	// default:
+	// 	return nil, fmt.Errorf("unsupported data type: %d", dataType)
+	// }
+
 	var value interface{}
-	switch types.DataType(dataType) {
-	case types.DataTypeNone:
-		value = nil
-	case types.DataTypeString:
-		value = string(data)
-	case types.DataTypeBool:
-		value = len(data) > 0 && data[0] != 0
-	case types.DataTypeUint256:
-		value = new(big.Int).SetBytes(data)
-	case types.DataTypeInt256:
-		bigInt := new(big.Int).SetBytes(data)
-		if bigInt.Bit(255) == 1 { // Check if negative
-			bigInt.Sub(bigInt, new(big.Int).Lsh(big.NewInt(1), 256))
+
+	if len(data) == 0 {
+		switch types.DataType(dataType) {
+		case types.DataTypeNone:
+			value = nil
+		case types.DataTypeBool:
+			value = false
+		case types.DataTypeUint256:
+			value = big.NewInt(0)
+		case types.DataTypeInt256:
+			value = big.NewInt(0)
+		case types.DataTypeBytes:
+			value = []byte{}
+		default:
+			return nil, fmt.Errorf("unsupported data type for zero length data: %d", dataType)
 		}
-		value = bigInt
-	case types.DataTypeBytes:
-		value = data
-	default:
-		return nil, fmt.Errorf("unsupported data type: %d", dataType)
+	} else {
+		var err error
+		value, err = decodeAbiParameters([]string{types.DataTypeToString(types.DataType(dataType))}, data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode data: %w", err)
+		}
+		value = value.([]interface{})[0]
 	}
 
 	// Create nested state object
@@ -711,8 +802,6 @@ func (sv *StreamingView) handleEthDBPathUpdate(event DecodedEvent, stateSubscrip
 			})
 		}
 	}
-
-	log.Printf("Created %d updates for EthDBPathUpdate event: %v", len(updates), updates)
 
 	return updates, nil
 }

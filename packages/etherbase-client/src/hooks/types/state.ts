@@ -27,6 +27,13 @@ export type EtherstoreState = {
   [key: string]: EtherstoreValue | EtherstoreState
 }
 
+export type UseEtherstoreHookProps = Readonly<{
+  contractAddress: Address
+  path: EtherstoreCompoundPath
+  options?: StateSubscriptionOptions
+  onStateChange?: (state: EtherstoreState) => void
+}>
+
 export type EtherstoreHookReturn = {
   state: EtherstoreState
   loading: boolean

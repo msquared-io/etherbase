@@ -1,9 +1,10 @@
 import type { Address } from "viem"
 import type { EtherbaseEvent } from "./events"
+import type { EtherstoreState } from "./state"
 
 export interface WebSocketStateUpdateInner {
   contractAddress: Address
-  state: Record<string, unknown>
+  state: EtherstoreState
   transactionIndex?: number
 }
 

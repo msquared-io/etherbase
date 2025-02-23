@@ -3,13 +3,18 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Upload } from "lucide-react"
+import { Braces, Upload } from "lucide-react"
 
 const navigation = [
   {
     href: "/sources",
     label: "Sources",
     icon: Upload,
+  },
+  {
+    href: "/custom-contracts",
+    label: "Custom Contracts",
+    icon: Braces,
   },
 ]
 
@@ -35,7 +40,7 @@ export function Header() {
                   "flex items-center space-x-2 transition-colors hover:text-foreground/80",
                   pathname?.startsWith(item.href)
                     ? "text-foreground"
-                    : "text-foreground/60"
+                    : "text-foreground/60",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -47,4 +52,4 @@ export function Header() {
       </div>
     </header>
   )
-} 
+}

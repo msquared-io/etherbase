@@ -241,9 +241,6 @@ func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest)
 					segmentIndices[i] = idx + 1
 				}
 
-				encodedPath := encodeSegmentIndices(segmentIndices)
-				// remove last byte from encodedPath as its null-terminated but we're doing prefix match
-				encodedPath = encodedPath[:len(encodedPath)-1]
 				entries, err := sourceContract.GetEntries(&bind.CallOpts{
 					Context: ctx,
 				})
@@ -251,42 +248,13 @@ func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest)
 					return nil, fmt.Errorf("failed to get entries: %w", err)
 				}
 
-				// Find exact match
-				exactMatch := false
-				for _, entry := range entries {
-					if entry.Exists && bytes.Equal(entry.Path, encodedPath) {
-						exactMatch = true
-						callData, err := abi.Pack("getValue", request.Path)
-						if err != nil {
-							return nil, fmt.Errorf("failed to pack getValue call: %w", err)
+				if len(segmentIndices) == 0 {
+					// user wants all entries
+					for _, entry := range entries {
+						if !entry.Exists {
+							continue
 						}
 
-						multicallQueries = append(multicallQueries, multicall.MulticallQuery{
-							Target:   addr,
-							CallData: callData,
-						})
-
-						requestTracker = append(requestTracker, requestTracking{
-							ContractAddress: addr,
-							RequestIndex:   reqIdx,
-							QueryIndex:     len(multicallQueries) - 1,
-							SegmentsString: request.Path,
-						})
-						break
-					}
-				}
-
-				if exactMatch {
-					continue
-				}
-
-				// Find partial matches
-				for _, entry := range entries {
-					if !entry.Exists {
-						continue
-					}
-
-					if bytes.HasPrefix(entry.Path, encodedPath) {
 						// Decode entry path back to segments
 						segments := decodeSegmentIndices(entry.Path)
 						segmentsString := make([]string, len(segments))
@@ -311,6 +279,73 @@ func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest)
 							SegmentsString: segmentsString,
 						})
 					}
+					continue
+				}
+
+				encodedPath := encodeSegmentIndices(segmentIndices)
+				// remove last byte from encodedPath as its null-terminated but we're doing prefix match
+				encodedPath = encodedPath[:len(encodedPath)-1]
+
+				// Find exact match
+				exactMatch := false
+				for _, entry := range entries {
+					if !entry.Exists || !bytes.Equal(entry.Path, encodedPath) {
+						continue
+					}
+
+					exactMatch = true
+					callData, err := abi.Pack("getValue", request.Path)
+					if err != nil {
+						return nil, fmt.Errorf("failed to pack getValue call: %w", err)
+					}
+
+					multicallQueries = append(multicallQueries, multicall.MulticallQuery{
+						Target:   addr,
+						CallData: callData,
+					})
+
+					requestTracker = append(requestTracker, requestTracking{
+						ContractAddress: addr,
+						RequestIndex:   reqIdx,
+						QueryIndex:     len(multicallQueries) - 1,
+						SegmentsString: request.Path,
+					})
+					break
+				}
+
+				if exactMatch {
+					continue
+				}
+				
+				// Find partial matches
+				for _, entry := range entries {
+					if !entry.Exists || !bytes.HasPrefix(entry.Path, encodedPath) {
+						continue
+					}
+
+					// Decode entry path back to segments
+					segments := decodeSegmentIndices(entry.Path)
+					segmentsString := make([]string, len(segments))
+					for i, segment := range segments {
+						segmentsString[i] = allSegments[segment-1]
+					}
+
+					callData, err := abi.Pack("getValue", segmentsString)
+					if err != nil {
+						return nil, fmt.Errorf("failed to pack getValue call for partial match: %w", err)
+					}
+
+					multicallQueries = append(multicallQueries, multicall.MulticallQuery{
+						Target:   addr,
+						CallData: callData,
+					})
+
+					requestTracker = append(requestTracker, requestTracking{
+						ContractAddress: addr,
+						RequestIndex:   reqIdx,
+						QueryIndex:     len(multicallQueries) - 1,
+						SegmentsString: segmentsString,
+					})
 				}
 			} else {
 				// Handle regular contract
@@ -404,6 +439,11 @@ func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest)
 
 			dataType := types.DataType(decodedResult[0].(uint8))
 			encodedValue := decodedResult[1].([]byte)
+
+			// if data type is none,don't add to state
+			if dataType == types.DataTypeNone {
+				continue
+			}
 
 			// Decode value based on data type
 			switch dataType {

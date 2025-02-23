@@ -20,7 +20,8 @@ export type Event = {
 }
 
 export type UseEtherbaseEventsProps = {
-  sourceAddress?: Address
+  contractAddress?: Address
+  contractAddresses?: Address[]
   events?: Event[]
   onEvent: EventHandler
 }

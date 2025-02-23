@@ -144,6 +144,60 @@ interface PrivateKeyModalProps {
   walletAddress: string
 }
 
+interface DepositModalProps {
+  open: boolean
+  onClose: () => void
+  onDeposit: (amount: string) => void
+}
+
+function DepositModal({ open, onClose, onDeposit }: DepositModalProps) {
+  const [amount, setAmount] = useState("")
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px] bg-black text-white">
+        <DialogHeader>
+          <DialogTitle>Deposit SOM</DialogTitle>
+          <DialogDescription>
+            Enter the amount of SOM to deposit
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="space-y-4">
+            <div>
+              <Label>Amount (SOM)</Label>
+              <Input
+                type="number"
+                step="0.000000000000000001"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Enter amount"
+                className="font-mono text-sm"
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            onClick={() => {
+              onDeposit(amount)
+              onClose()
+            }}
+            className="bg-white text-black"
+            disabled={!amount || parseFloat(amount) <= 0}
+          >
+            Deposit
+          </Button>
+          <Button onClick={onClose} variant="outline">
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function PrivateKeyModal({
   open,
   onClose,
@@ -210,6 +264,8 @@ export default function PermissionsPanel({
   const [showPrivateKeyModal, setShowPrivateKeyModal] = useState(false)
   const [generatedPrivateKey, setGeneratedPrivateKey] = useState("")
   const [generatedWalletAddress, setGeneratedWalletAddress] = useState("")
+  const [showDepositModal, setShowDepositModal] = useState(false)
+  const [depositTargetAddress, setDepositTargetAddress] = useState<Address>()
 
   const {
     grantRoles,
@@ -350,11 +406,14 @@ export default function PermissionsPanel({
                   SOM
                 </span>
                 <Button
-                  onClick={() => deposit(permission.walletAddress as Address)}
+                  onClick={() => {
+                    setDepositTargetAddress(permission.walletAddress as Address)
+                    setShowDepositModal(true)
+                  }}
                   className="ml-2 bg-green-600 hover:bg-green-700"
                   size="sm"
                 >
-                  Deposit 10 SOM
+                  Deposit SOM
                 </Button>
               </div>
               <div className="mt-2">
@@ -373,10 +432,16 @@ export default function PermissionsPanel({
 
                     try {
                       for (const role of addedRoles) {
-                        await grantRole(permission.walletAddress as Address, role)
+                        await grantRole(
+                          permission.walletAddress as Address,
+                          role,
+                        )
                       }
                       for (const role of removedRoles) {
-                        await revokeRole(permission.walletAddress as Address, role)
+                        await revokeRole(
+                          permission.walletAddress as Address,
+                          role,
+                        )
                       }
 
                       await fetchPermissionsData()
@@ -395,7 +460,9 @@ export default function PermissionsPanel({
             </div>
             {!permission.isOwner && (
               <Button
-                onClick={() => revokeIdentity(permission.walletAddress as Address)}
+                onClick={() =>
+                  revokeIdentity(permission.walletAddress as Address)
+                }
                 variant="destructive"
                 title="Revoke Identity"
                 size="icon"
@@ -412,6 +479,19 @@ export default function PermissionsPanel({
         onClose={() => setShowPrivateKeyModal(false)}
         privateKey={generatedPrivateKey}
         walletAddress={generatedWalletAddress}
+      />
+
+      <DepositModal
+        open={showDepositModal}
+        onClose={() => {
+          setShowDepositModal(false)
+          setDepositTargetAddress(undefined)
+        }}
+        onDeposit={(amount) => {
+          if (depositTargetAddress) {
+            deposit(depositTargetAddress, parseFloat(amount))
+          }
+        }}
       />
     </div>
   )

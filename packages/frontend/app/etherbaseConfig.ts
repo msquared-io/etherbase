@@ -17,5 +17,5 @@ export const etherbaseConfig: EtherbaseConfig = {
   wsWriterUrl: useLocalBackend
     ? `${localUrl}:8081`
     : "wss://etherbase-writer-496683047294.europe-west2.run.app",
-  useBackend: true,
+  useBackend: false,
 }

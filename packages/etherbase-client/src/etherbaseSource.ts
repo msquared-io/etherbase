@@ -10,7 +10,7 @@ export async function fetchEventDefinitionsData(
 
   const response = await fetch(
     `${httpReaderUrl}/event-definitions?sourceAddress=${sourceAddress}`,
-    { cache: "no-store" }
+    { cache: "no-store" },
   )
   console.log("response", response)
   return response.json()

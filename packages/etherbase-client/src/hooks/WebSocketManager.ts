@@ -329,6 +329,7 @@ export class WebSocketManager {
       localId,
       subscription,
     })
+    console.log("Adding state subscription", localId, subscription)
     await this.connectReader()
     const status = this.subscriptions.get(localId)
     if (!status) {
@@ -376,6 +377,7 @@ export class WebSocketManager {
         }),
       )
     } else {
+      console.log("Sending state subscription!!!", localId, subscription)
       this.readerWs.send(
         JSON.stringify({
           type: "subscribe",
@@ -453,6 +455,32 @@ export class WebSocketManager {
           name,
           args,
         },
+      }),
+    )
+  }
+
+  async executeContractMethod({
+    contractAddress,
+    methodName,
+    args,
+  }: {
+    contractAddress: Address
+    methodName: string
+    args: Record<string, unknown>
+  }) {
+    console.log(
+      "[WebSocketManager] Executing contract method...",
+      this.writerWs?.readyState,
+    )
+
+    if (!this.writerWs || this.writerWs.readyState !== WebSocket.OPEN) {
+      await this.connectWriter()
+    }
+
+    this.writerWs?.send(
+      JSON.stringify({
+        type: "execute_contract_method",
+        data: { contractAddress, methodName, args },
       }),
     )
   }

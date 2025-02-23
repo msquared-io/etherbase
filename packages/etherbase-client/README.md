@@ -18,8 +18,9 @@ import { EtherbaseConfig, somnia } from "@msquared/etherbase-client";
 const config: EtherbaseConfig = {
   chain: somnia, // the chain to use if using in-browser
   useBackend: true, // Use backend service instead of direct blockchain in-browser
-  wsBaseUrl: "wss://...", // WebSocket URL for real-time updates
-  httpBaseUrl: "https://...", // HTTP URL for REST endpoints
+  httpReaderUrl: "https://etherbase-reader-496683047294.europe-west2.run.app",
+  wsReaderUrl: "wss://etherbase-reader-496683047294.europe-west2.run.app",
+  wsWriterUrl: "wss://etherbase-writer-496683047294.europe-west2.run.app",
   privateKey: "0x...", // Optional private key for backend auth
 };
 ```
@@ -36,14 +37,17 @@ We also provide some server-side functions under `@msquared/etherbase-client/ser
 
 ## Usage
 
-### Reading events
+### Events
 
-The `useEtherbaseEvents` hook allows you to subscribe to contract events in real-time.
+#### Reading events
+
+Use the `useEtherbaseEvents` hook to subscribe to contract events in real-time:
 
 ```tsx
 const { error } = useEtherbaseEvents({
-  sourceAddress: "0x...", // Contract address
-  events: [{ name: "EventName" }], // Array of events to subscribe to
+  contractAddress: "0x...",   // provide a contract address to listen to the events of
+  contractAddresses: ["0xabcd...", "0xefff..."] // or provide an array
+  events: [{ name: "EventName" }], // the array of events to care about
   onEvent: (event) => {
     // Handle event data
     console.log(event.args);
@@ -51,7 +55,69 @@ const { error } = useEtherbaseEvents({
 });
 ```
 
-### Reading state
+You can also provide specific arguments to listen to for the events, such as listening to the minting of new coins in an ERC-20 contract:
+
+```tsx
+const { error } = useEtherbaseEvents({
+  contractAddress: "0x...", // the ERC-20 contract address 
+  events: [{ 
+    name: "Transfer",
+    args: {
+      "from": ["0x00000000000000000000000000000000"]
+    } }],
+  onEvent: (event) => {
+    // Handle mints data
+    console.log(event.args);
+  },
+});
+```
+
+
+### Emitting events
+
+If using Source contracts, you can emit events as you wish. First, you need to register the schema for your event.
+
+#### Registering Events
+
+Before emitting events, you need to register the schema of the event you want to emit. You can do so by either using the example frotend or by your own registration logic:
+
+```tsx
+const { registerEvent } = useEtherbaseSource({
+  sourceAddress: "0x...",
+});
+
+await registerEvent({
+  name: "EventName",
+  args: [
+    { name: "param1", argType: "string", isIndexed: true },
+    { name: "param2", argType: "uint256", isIndexed: false },
+  ],
+});
+```
+
+#### Emitting an event for some schema
+
+ use the `useEtherbaseSource` hook to emit custom events:
+
+```tsx
+const { emitEvent } = useEtherbaseSource({
+  sourceAddress: "0x...",
+});
+
+// Emit an event
+await emitEvent({
+  name: "EventName",
+  args: {
+    param1: "value1",
+    param2: "value2",
+  },
+});
+```
+
+
+### State
+
+#### Reading state
 
 The `useEtherstore` hook provides real-time state management for contracts:
 
@@ -74,9 +140,9 @@ const { state, loading, error, update } = useEtherstore([contractAddress, "path"
 ```
 This will return an object with the state of `state1` and `state2`.
 
-### Writing state
+#### Writing state
 
-Use the `useEtherbaseSource` hook to write state to an event source contract:
+If using Source contracts, you can write state to an event source contract by using the `useEtherbaseSource` hook:
 
 ```tsx
 const { setValue } = useEtherbaseSource({
@@ -93,7 +159,7 @@ await setValue({
 });
 ```
 
-or use the 'update' function to update the state:
+or use the `update` function to update the state:
 
 ```tsx
 const { state, loading, error, update } = useEtherstore([contractAddress, "path", "to", "state"], {
@@ -111,39 +177,23 @@ await update({
 });
 ```
 
-### Emitting events
 
-The `useEtherbaseSource` hook also allows emitting custom events:
+### Contract execution
+
+If using custom contracts, you can execute contract methods by using the `useEtherbaseContract` hook:
 
 ```tsx
-const { emitEvent } = useEtherbaseSource({
-  sourceAddress: "0x...",
+const { execute } = useEtherbaseContract({
+  contractAddress: "0x...",
 });
 
-// Emit an event
-await emitEvent({
-  name: "EventName",
+await execute({
+  methodName: "functionName",
   args: {
-    param1: "value1",
-    param2: "value2",
+    arg1: "value1",
+    arg2: "value2",
   },
 });
 ```
 
-### Registering Events
-
-Before emitting events, they need to be registered with the contract:
-
-```tsx
-const { registerEvent } = useEtherbaseSource({
-  sourceAddress: "0x...",
-});
-
-await registerEvent({
-  name: "EventName",
-  args: [
-    { name: "param1", argType: "string", isIndexed: true },
-    { name: "param2", argType: "uint256", isIndexed: false },
-  ],
-});
-```
+which will use the performant backend to execute your contract. At the moment there is no way to retrieve the data from your contract, so you should make sure you are subscribing to relevant changes that are caused by your contract execution.

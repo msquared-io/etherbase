@@ -6,40 +6,47 @@ import { useEtherbaseContext } from "../EtherbaseProvider"
 import { getConfig } from "../config"
 import { WebSocketManager } from "./WebSocketManager"
 import type {
-  EtherstoreCompoundPath,
   EtherstoreHookReturn,
   EtherstoreState,
-  StateSubscriptionOptions,
+  EtherstoreValue,
+  UseEtherstoreHookProps,
 } from "./types/state"
 import type { WebSocketStateUpdateInner } from "./types/websocket"
 import useEtherbaseSource from "./useEtherbaseSource"
 
 function deepMerge(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-): Record<string, unknown> {
+  target: EtherstoreState,
+  source: EtherstoreState,
+): EtherstoreState {
   if (!target) {
-    return source
+    return source as EtherstoreState
   }
   if (!source) {
-    return target
+    return target || {}
   }
   const output = { ...target }
   for (const key in source) {
-    if (source[key] instanceof Object && key in target) {
-      // @ts-ignore
-      output[key] = deepMerge(target[key], source[key])
+    console.log("key", key, source[key], target[key])
+    if (source[key] === null) {
+      delete output[key]
+    } else if (source[key] instanceof Object && key in target) {
+      output[key] = deepMerge(
+        target[key] as EtherstoreState,
+        source[key] as EtherstoreState,
+      )
     } else {
-      output[key] = source[key]
+      output[key] = source[key] as EtherstoreValue
     }
   }
   return output
 }
 
-export default function useEtherstore(
-  path: EtherstoreCompoundPath,
-  options: StateSubscriptionOptions = {},
-): EtherstoreHookReturn {
+export default function useEtherstore({
+  contractAddress,
+  path,
+  options = {},
+  onStateChange,
+}: UseEtherstoreHookProps): EtherstoreHookReturn {
   useEtherbaseContext()
 
   const [state, setState] = useState<EtherstoreState>({})
@@ -47,14 +54,12 @@ export default function useEtherstore(
   const [error, setError] = useState<string | null>(null)
   const keyRef = useRef<string>(Math.random().toString(36).substring(2, 9))
 
-  const contractAddress = path[0] as Address
-
   if (!contractAddress) {
     throw new Error("Contract address must be provided in path")
   }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: need a stable reference
-  const statePath = useMemo(() => path.slice(1), [JSON.stringify(path)])
+  const statePath = useMemo(() => path, [JSON.stringify(path)])
   // biome-ignore lint/correctness/useExhaustiveDependencies: need a stable reference
   const optionsMemo = useMemo(() => options, [JSON.stringify(options)])
 
@@ -98,22 +103,32 @@ export default function useEtherstore(
 
             // deep merge the update into the state
             // @ts-ignore
-            setState((prev) => deepMerge(prev, update.state))
+            setState((prev) => {
+              const mergedState = deepMerge(prev, update.state)
+
+              if (onStateChange) {
+                onStateChange(mergedState)
+              }
+
+              return mergedState
+            })
           },
         })
       } catch (err) {
+        console.error("Error creating subscription", err)
         setError(err instanceof Error ? err.message : String(err))
         setLoading(false)
         return
       }
     }
 
+    console.log("Creating subscription", contractAddress, statePath)
     createSubscription()
 
     return () => {
       WebSocketManager.get().removeSubscription(keyRef.current)
     }
-  }, [contractAddress, statePath, optionsMemo])
+  }, [contractAddress, statePath, optionsMemo, onStateChange])
 
   return { state, loading, error, update }
 }

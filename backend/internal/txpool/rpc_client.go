@@ -63,7 +63,6 @@ func (c *RPCClient) readLoop() {
 
 // Call sends a JSON‑RPC request and waits for the response.
 func (c *RPCClient) Call(method string, params interface{}) (json.RawMessage, error) {
-	// Increment request ID.
 	c.reqID++
 	reqID := c.reqID
 
@@ -77,12 +76,13 @@ func (c *RPCClient) Call(method string, params interface{}) (json.RawMessage, er
 	ch := make(chan json.RawMessage)
 	c.pending[reqID] = ch
 
-	// Protect the write with writeMu.
+	c.writeMu.Lock()
 	err := c.conn.WriteJSON(req)
+	c.writeMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	// In production you might want to add a timeout here.
+
 	result := <-ch
 	return result, nil
 }

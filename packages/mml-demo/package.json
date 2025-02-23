@@ -15,7 +15,7 @@
     "postinstall": "cd mml-document && npm install && npm run build"
   },
   "dependencies": {
-    "@msquared/etherbase-client": "^0.1.0",
+    "@msquared/etherbase-client": "*",
     "@types/chokidar": "^2.1.7",
     "@types/cors": "2.8.17",
     "@types/express": "^5.0.0",

@@ -31,13 +31,23 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 	sProv := schema.NewSchemaProvider(cfg.EtherbaseAddress, manager.Client())
 
-	eReg := sources.NewSourceRegistry(cfg.EtherbaseAddress, nil)
-	updateCh := eReg.OnUpdate()
+	eReg := sources.NewSourceRegistry(cfg.EtherbaseAddress)
+	updateSourcesCh := eReg.OnUpdateSources()
 	go func() {
-		for newSources := range updateCh {
+		for newSources := range updateSourcesCh {
 			fmt.Printf("Received new sources from registry: %v\n", newSources)
 			for _, source := range newSources {
-				sProv.AddSource(source)
+				sProv.AddSource(source.SourceAddress)
+			}
+		}
+	}()
+	
+	updateCustomContractsCh := eReg.OnUpdateCustomContracts()
+	go func() {
+		for newCustomContracts := range updateCustomContractsCh {
+			fmt.Printf("Received new custom contracts from registry: %v\n", newCustomContracts)
+			for _, customContract := range newCustomContracts {
+				sProv.AddCustomContract(customContract.ContractAddress, "CustomContract", customContract.ContractABI)
 			}
 		}
 	}()

@@ -10,7 +10,7 @@ import type {
 } from "./types/events"
 
 export default function useEtherbaseEvents({
-  sourceAddress,
+  contractAddress,
   events,
   onEvent,
 }: UseEtherbaseEventsProps): UseEtherbaseEventsReturn {
@@ -33,8 +33,8 @@ export default function useEtherbaseEvents({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: want to minimize re-subscriptions
   useEffect(() => {
-    if (!sourceAddress) {
-      setError("No source address provided")
+    if (!contractAddress) {
+      setError("No contract address provided")
       return
     }
 
@@ -42,7 +42,7 @@ export default function useEtherbaseEvents({
 
     WebSocketManager.get()
       .addEventSubscription(localId, {
-        contractAddress: sourceAddress,
+        contractAddress,
         events,
         onEvent: handleEvent,
       })
@@ -53,7 +53,7 @@ export default function useEtherbaseEvents({
     return () => {
       WebSocketManager.get().removeSubscription(localId)
     }
-  }, [sourceAddress, JSON.stringify(events), handleEvent])
+  }, [contractAddress, JSON.stringify(events), handleEvent])
 
   return { error }
 }

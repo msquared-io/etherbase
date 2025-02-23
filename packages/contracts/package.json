@@ -25,6 +25,7 @@
     "@nomicfoundation/hardhat-viem": "^2.0.6",
     "@openzeppelin/contracts": "^5.2.0",
     "ethers": "^6.13.5",
+    "forge-std": "^1.1.2",
     "sevm": "^0.7.4",
     "solc-typed-ast": "^18.2.4",
     "viem": "^2.22.11"

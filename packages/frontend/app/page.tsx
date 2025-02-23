@@ -1,15 +1,28 @@
 "use client"
 
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Upload } from "lucide-react"
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card"
+import { Braces, Upload } from "lucide-react"
 import Link from "next/link"
 
 const features = [
   {
     title: "Manage Sources",
-    description: "Create and manage event sources for your blockchain events and state.",
+    description:
+      "Create and manage event sources for your blockchain events and state.",
     icon: Upload,
     href: "/sources",
+  },
+  {
+    title: "Manage Custom Contracts",
+    description:
+      "Create and manage custom contracts for your blockchain events and state.",
+    icon: Braces,
+    href: "/custom-contracts",
   },
 ]
 
@@ -21,11 +34,12 @@ export default function Home() {
           Welcome to Etherbase
         </h1>
         <p className="text-lg text-muted-foreground max-w-[600px]">
-          Your platform for managing blockchain events and data sources with ease.
+          Your platform for managing blockchain events and data sources with
+          ease.
         </p>
       </div>
 
-      <div className="w-full max-w-xl">
+      <div className="w-full max-w-xl flex flex-col gap-4">
         {features.map((feature) => {
           const Icon = feature.icon
           return (

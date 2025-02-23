@@ -24,6 +24,7 @@ type TxRequest struct {
     ContractAddress common.Address
     PrivateKey      string // hex
     Payload         TxPayload
+    Abi             *abi.ABI
 }
 
 type TxPayload struct {
@@ -54,6 +55,7 @@ type TransactionPool struct {
     stopCh         chan struct{}
     sourceABI     abi.ABI
     keyCache       sync.Map    // Changed from map to sync.Map
+    signer         types.Signer
 }
 
 var txPoolInstance *TransactionPool
@@ -78,6 +80,7 @@ func MakeTransactionPool(config *config.Config) {
             pool:       make([]TxRequest, 0, 100),
             stopCh:     make(chan struct{}),
             sourceABI: sourceABI,
+            signer:     types.LatestSignerForChainID(big.NewInt(int64(config.ChainID))),
         }
         go txPoolInstance.loop()
     })
@@ -149,7 +152,7 @@ func (tp *TransactionPool) getOrCreatePrivateKey(hexKey string) (*ecdsa.PrivateK
 }
 
 // debug mode slows all transactions but checks all errors and receipts
-const debug = true
+const debug = false
 
 type TimingStats struct {
     GetArgsTime        time.Duration
@@ -162,8 +165,6 @@ type TimingStats struct {
 
 func (tp *TransactionPool) processBatch(batch []TxRequest) {
     startTime := time.Now()
-    chainID := big.NewInt(50311)
-    signer := types.LatestSignerForChainID(chainID)
     
     stats := TimingStats{}
     preparedTxs := make([]PreparedTx, 0, len(batch))
@@ -192,7 +193,12 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
 
         // Time packing data
         packStart := time.Now()
-        data, err := tp.sourceABI.Pack(txReq.Payload.FunctionName, args...)
+        abi := txReq.Abi
+        if abi == nil {
+            abi = &tp.sourceABI
+        }
+        log.Printf("function name: %s, args: %v", txReq.Payload.FunctionName, args)
+        data, err := abi.Pack(txReq.Payload.FunctionName, args...)
         if err != nil {
             log.Printf("Failed to pack data for transaction %d: %v", i, err)
             continue
@@ -201,11 +207,11 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
 
         nonceVal := uint64(time.Now().UnixNano() / 1000)
         tx := types.NewTx(&types.DynamicFeeTx{
-            ChainID:   chainID,
+            ChainID:   tp.signer.ChainID(),
             Nonce:     nonceVal,
             GasTipCap: big.NewInt(0),
             GasFeeCap: big.NewInt(36000000000),
-            Gas:       uint64(2000000),
+            Gas:       uint64(20000000),
             To:        &txReq.ContractAddress,
             Value:     big.NewInt(0),
             Data:      data,
@@ -213,7 +219,7 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
 
         // Time signing
         signStart := time.Now()
-        signedTx, err := types.SignTx(tx, signer, privKey)
+        signedTx, err := types.SignTx(tx, tp.signer, privKey)
         if err != nil {
             log.Fatalf("Failed to sign transaction %d: %v", i, err)
         }
@@ -277,7 +283,6 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
     duration := time.Since(startTime)
     fmt.Printf("Sent %d transactions in %v\n", len(preparedTxs), duration)
 
-
     // Start goroutine to monitor transaction receipts only in debug mode
     if debug {
         go tp.monitorTransactionReceipts(txResults)
@@ -306,6 +311,8 @@ func (tp *TransactionPool) monitorTransactionReceipts(txResults []TxResult) {
                 continue
             }
 
+            // log.Printf("Receipt: %v", receipt)
+
             if receipt == nil {
                 // Transaction still pending
                 pendingTxs = append(pendingTxs, txResult)
@@ -322,6 +329,9 @@ func (tp *TransactionPool) monitorTransactionReceipts(txResults []TxResult) {
             // status "0x1" means success, "0x0" means failure
             if status == "0x0" {
                 log.Printf("Transaction failed - Hash: %s, Function: %s", 
+                    txResult.Hash.Hex(), txResult.Request.Payload.FunctionName)
+            } else {
+                log.Printf("Transaction succeeded - Hash: %s, Function: %s", 
                     txResult.Hash.Hex(), txResult.Request.Payload.FunctionName)
             }
         }

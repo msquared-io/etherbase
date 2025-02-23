@@ -5,12 +5,8 @@ import type { Address } from "viem"
 import { parseEther } from "viem"
 import { useEtherbaseContext } from "../EtherbaseProvider"
 import { EtherbaseSourceAbi } from "../abi/EtherbaseSource"
+import type { UseEtherbasePermissionsProps } from "./types/etherbase"
 import useWebThree from "./useWebThree"
-
-export type UseEtherbasePermissionsProps = Readonly<{
-  sourceAddress: Address
-}>
-
 interface Permission {
   walletAddress: string
   roles: number[]
@@ -23,7 +19,9 @@ export default function useEtherbasePermissions({
 }: UseEtherbasePermissionsProps) {
   useEtherbaseContext()
   const { publicClient, getWalletClient } = useWebThree()
-  const [canGrantRoles, setCanGrantRoles] = useState<Record<number, boolean>>({})
+  const [canGrantRoles, setCanGrantRoles] = useState<Record<number, boolean>>(
+    {},
+  )
 
   const getWalletClientInternal = useCallback(async () => {
     const walletClient = await getWalletClient()
@@ -36,10 +34,7 @@ export default function useEtherbasePermissions({
   }, [getWalletClient])
 
   const executeWriteBrowser = useCallback(
-    async (
-      writeFunctionName: string,
-      args: unknown[],
-    ) => {
+    async (writeFunctionName: string, args: unknown[]) => {
       if (!publicClient) {
         throw new Error("Public client not found")
       }
@@ -47,8 +42,8 @@ export default function useEtherbasePermissions({
 
       // check the function name is valid
       if (
-        !EtherbaseSourceAbi.find(
-          (f: any) => f.type === "function" && f.name === writeFunctionName,
+        !Array.from(EtherbaseSourceAbi).find(
+          (f) => f.type === "function" && f.name === writeFunctionName,
         )
       ) {
         throw new Error(`Invalid function name: ${writeFunctionName}`)
@@ -97,12 +92,15 @@ export default function useEtherbasePermissions({
   )
 
   const deposit = useCallback(
-    async (targetAddress: Address) => {
+    async (targetAddress: Address, amount: number) => {
       const walletClient = await getWalletClientInternal()
+      if (!walletClient.account) {
+        throw new Error("No account connected")
+      }
       const hash = await walletClient.sendTransaction({
         to: targetAddress,
-        value: parseEther("1000"), // 10 SOM
-        account: walletClient.account!,
+        value: parseEther(amount.toString()), // Convert amount to SOM
+        account: walletClient.account,
         chain: walletClient.chain,
       })
       await publicClient?.waitForTransactionReceipt({ hash })
@@ -138,9 +136,9 @@ export default function useEtherbasePermissions({
     const balances = await Promise.all(balancePromises)
 
     // Get current user's wallet to check permissions
-    const accounts = await window.ethereum?.request({
+    const accounts = (await window.ethereum?.request({
       method: "eth_requestAccounts",
-    }) as string[]
+    })) as string[]
     const userWallet = accounts[0]
     const userIdentity = identityViews.find(
       (identity) =>
@@ -157,7 +155,9 @@ export default function useEtherbasePermissions({
     const permissionsList = identityViews.map((identity, index) => ({
       walletAddress: identity.walletAddress,
       roles: identity.roles,
-      isOwner: identity.walletAddress.toLowerCase() === (owner as string).toLowerCase(),
+      isOwner:
+        identity.walletAddress.toLowerCase() ===
+        (owner as string).toLowerCase(),
       balance: balances[index],
     }))
 
@@ -173,4 +173,4 @@ export default function useEtherbasePermissions({
     fetchPermissions,
     canGrantRoles,
   }
-} 
+}

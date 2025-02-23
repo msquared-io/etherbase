@@ -6,13 +6,17 @@ export interface EtherbaseConfig {
   wsWriterUrl?: string
   privateKey?: string // Optional private key for write operations
   chain?: Chain // Optional chain for write operations inside the browser
-  useBackend?: boolean  // Optional flag to use the backend for write operations
+  useBackend?: boolean // Optional flag to use the backend for write operations
 }
 
 let config: EtherbaseConfig | null = null
 
 export function initializeApp(userConfig: EtherbaseConfig) {
-  if (!userConfig.wsReaderUrl && !userConfig.wsWriterUrl && !userConfig.httpReaderUrl) {
+  if (
+    !userConfig.wsReaderUrl &&
+    !userConfig.wsWriterUrl &&
+    !userConfig.httpReaderUrl
+  ) {
     throw new Error(
       "wsReaderUrl or wsWriterUrl or httpReaderUrl must be provided in etherbase config",
     )

@@ -19,6 +19,7 @@ type MessageType string
 
 const (
 	TypeSetValue    MessageType = "set_value"
+	TypeExecuteContractMethod MessageType = "execute_contract_method"
 	TypeEmitEvent   MessageType = "emit_event"
 	TypeError       MessageType = "error"
 )
@@ -115,6 +116,13 @@ func handleWriteWebSocket(conn *websocket.Conn, r *http.Request) {
 				continue
 			}
 			handleEmitEvent(conn, privateKey, clientMsg.Data)
+		case TypeExecuteContractMethod:
+			if privateKey == "" {
+				log.Printf("[websocket-writer] Client %s attempted execute_contract_method without private key", clientID)
+				sendError(conn, "No private key for execute_contract_method")
+				continue
+			}
+			handleExecuteContractMethod(conn, privateKey, clientMsg.Data)
 		default:
 			log.Printf("[websocket-writer] Unhandled message type '%s' from client %s", clientMsg.Type, clientID)
 			sendMessage(conn, "unhandled_message", nil)

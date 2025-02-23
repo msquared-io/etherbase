@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"fmt"
+	"log"
 	"reflect"
 	"sync"
 
@@ -14,7 +15,7 @@ import (
 
 // StateManager caches state in memory and merges updates
 type StateManager struct {
-	contractState sync.Map // map[common.Address]map[string]interface{}
+	subscriptionsContractState sync.Map // map[types.SubscriptionID]map[common.Address]map[string]interface{}
 }
 
 var (
@@ -31,7 +32,7 @@ func GetManager() *StateManager {
 }
 
 // FetchStateForSubscriptions fetches and returns state for given subscriptions
-func (sm *StateManager) FetchStateForSubscriptions(ctx context.Context, stateSubscriptions map[types.ClientID][]types.SubscriptionID) (map[types.SubscriptionID]map[string]interface{}, uint64, error) {
+func (sm *StateManager) 	FetchStateForSubscriptions(ctx context.Context, stateSubscriptions map[types.ClientID][]types.SubscriptionID) (map[types.SubscriptionID]map[string]interface{}, uint64, error) {
 	uniqueSubscriptions := sm.getCompactUniqueStateSubscriptions(stateSubscriptions)
 
 	// Fetch state from chain
@@ -44,17 +45,12 @@ func (sm *StateManager) FetchStateForSubscriptions(ctx context.Context, stateSub
 		return nil, 0, nil
 	}
 
-	fmt.Printf("Fetched %d states\n", len(result.States))
+	log.Printf("Fetched %d states, %v, %v\n", len(result.States), stateSubscriptions, result.States)
 
 	// Build state updates for each subscription
 	stateUpdates := sm.buildStateUpdatesForSubscriptions(stateSubscriptions, result.States)
 
-	// Merge states into contract states
-	for _, state := range result.States {
-		currentState, _ := sm.contractState.LoadOrStore(state.ContractAddress, make(map[string]interface{}))
-		mergedState := deepMerge(currentState.(map[string]interface{}), state.State)
-		sm.contractState.Store(state.ContractAddress, mergedState)
-	}
+	// log.Printf("stateUpdates %v\n", stateUpdates)
 
 	return stateUpdates, result.BlockNumber, nil
 }
@@ -135,16 +131,21 @@ func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map
 
 			fullStateUpdateOnChange := stateSub.Options.FullStateUpdateOnChange
 
-			contractStateVal, ok := sm.contractState.Load(stateSub.ContractAddress)
-			var contractState map[string]interface{}
+			subscriberContractsStateVal, ok := sm.subscriptionsContractState.Load(subID)
+			var contractsState map[common.Address]map[string]interface{}
 			if ok {
-				contractState = contractStateVal.(map[string]interface{})
+				contractsState = subscriberContractsStateVal.(map[common.Address]map[string]interface{})
 			} else {
-				contractState = make(map[string]interface{})
+				contractsState = make(map[common.Address]map[string]interface{})
+			}
+
+			subscriberContractStateVal, ok := contractsState[stateSub.ContractAddress]
+			if !ok {
+				subscriberContractStateVal = make(map[string]interface{})
 			}
 
 			for _, path := range stateSub.StatePaths {
-				contractCurrentValue := getValueAtPath(contractState, path)
+				contractCurrentValue := getValueAtPath(subscriberContractStateVal, path)
 				isValueUpdated := false
 				var updatedValue interface{}
 
@@ -164,9 +165,13 @@ func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map
 					if updates[subID] == nil {
 						updates[subID] = make(map[string]interface{})
 					}
-					setValueAtPath(updates[subID], path, updatedValue)
+					updates[subID] = setValueAtPath(updates[subID], path, updatedValue)
+					subscriberContractStateVal = setValueAtPath(subscriberContractStateVal, path, updatedValue)
 				}
 			}
+
+			contractsState[stateSub.ContractAddress] = subscriberContractStateVal
+			sm.subscriptionsContractState.Store(subID, contractsState)
 		}
 	}
 
@@ -174,6 +179,10 @@ func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map
 }
 
 func getValueAtPath(obj map[string]interface{}, path []string) interface{} {
+	if len(path) == 0 {
+		return obj
+	}
+
 	current := obj
 	for i, key := range path {
 		if i == len(path)-1 {
@@ -189,12 +198,20 @@ func getValueAtPath(obj map[string]interface{}, path []string) interface{} {
 	return nil
 }
 
-func setValueAtPath(obj map[string]interface{}, path []string, value interface{}) {
+func setValueAtPath(obj map[string]interface{}, path []string, value interface{}) map[string]interface{} {
+	if len(path) == 0 {
+		if valueMap, ok := value.(map[string]interface{}); ok {
+			return valueMap
+		}
+		log.Printf("Warning: Cannot set non-map value %v to root object", value)
+		return obj
+	}
+
 	current := obj
 	for i, key := range path {
 		if i == len(path)-1 {
 			current[key] = value
-			return
+			return obj
 		}
 		
 		if current[key] == nil {
@@ -202,6 +219,7 @@ func setValueAtPath(obj map[string]interface{}, path []string, value interface{}
 		}
 		current = current[key].(map[string]interface{})
 	}
+	return obj
 }
 
 func deepMerge(target, source map[string]interface{}) map[string]interface{} {

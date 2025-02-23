@@ -107,6 +107,20 @@ contract PublicVariableEthDBUpdateMappingEvent is EthDBUpdater {
     }
 }
 
+contract PublicVariableEthDBUpdateMappingInitiallyEmptyEvent is EthDBUpdater {
+    mapping(uint256 => uint256) public mappingA;
+
+    constructor() {
+    }
+    
+    function increment() public {
+        mappingA[1] = mappingA[1] + 1;
+        mappingA[2] = mappingA[2] + 2;
+
+        _emitUpdate();
+    }
+}
+
 contract PublicVariableEthDBUpdateArrayEvent is EthDBUpdater {
     uint256[] public arrayA;
     uint256[] public arrayB;

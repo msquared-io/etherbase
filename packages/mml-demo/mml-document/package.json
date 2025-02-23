@@ -2,7 +2,8 @@
   "name": "mml-doc",
   "private": true,
   "scripts": {
-    "build": "tsx ./build.ts --build",
+    "build": "npm -v",
+    "build-real": "tsx ./build.ts --build",
     "start": "tsx ./build.ts --watch",
     "type-check": "tsc --noEmit",
     "lint": "eslint \"./src/**/*.{js,jsx,ts,tsx}\" --max-warnings 0",

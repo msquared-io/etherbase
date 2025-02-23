@@ -29,7 +29,7 @@ func NewManager(cfg *config.Config) (*Manager, error) {
     once.Do(func() {
         cli, err := ethclient.Dial(cfg.RpcURL)
         if err != nil {
-            err = err
+            log.Printf("Error dialing Ethereum client: %v", err)
             return
         }
         instance = &Manager{

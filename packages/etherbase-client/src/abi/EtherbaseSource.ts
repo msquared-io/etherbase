@@ -41,14 +41,81 @@ export const EtherbaseSourceAbi = [
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "enum EtherDatabaseLib.DataType",
+        "name": "dataType",
+        "type": "uint8"
+      }
+    ],
+    "name": "InvalidDataEncoding",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum EtherDatabaseLib.DataType",
+        "name": "expected",
+        "type": "uint8"
+      },
+      {
+        "internalType": "enum EtherDatabaseLib.DataType",
+        "name": "actual",
+        "type": "uint8"
+      }
+    ],
+    "name": "InvalidDataType",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidIdentity",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PathNotFound",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "TooManyIndexedargs",
     "type": "error"
   },
   {
     "inputs": [],
+    "name": "TooManyTopics",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "Unauthorized",
     "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string[]",
+        "name": "path",
+        "type": "string[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "dataType",
+        "type": "uint8"
+      }
+    ],
+    "name": "EthDBPathUpdate",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -61,6 +128,19 @@ export const EtherbaseSourceAbi = [
       }
     ],
     "name": "IdentityCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      }
+    ],
+    "name": "IdentityDeleted",
     "type": "event"
   },
   {
@@ -99,6 +179,25 @@ export const EtherbaseSourceAbi = [
       }
     ],
     "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "enum RoleControl.Role",
+        "name": "role",
+        "type": "uint8"
+      }
+    ],
+    "name": "RoleRevoked",
     "type": "event"
   },
   {
@@ -219,25 +318,6 @@ export const EtherbaseSourceAbi = [
   {
     "inputs": [
       {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      }
-    ],
-    "name": "encodePath",
-    "outputs": [
-      {
-        "internalType": "bytes",
-        "name": "",
-        "type": "bytes"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "string",
         "name": "",
         "type": "string"
@@ -315,44 +395,6 @@ export const EtherbaseSourceAbi = [
         "internalType": "address[]",
         "name": "",
         "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      }
-    ],
-    "name": "getBool",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      }
-    ],
-    "name": "getBytes",
-    "outputs": [
-      {
-        "internalType": "bytes",
-        "name": "",
-        "type": "bytes"
       }
     ],
     "stateMutability": "view",
@@ -522,25 +564,6 @@ export const EtherbaseSourceAbi = [
   {
     "inputs": [
       {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      }
-    ],
-    "name": "getInt",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "string",
         "name": "segment",
         "type": "string"
@@ -579,44 +602,6 @@ export const EtherbaseSourceAbi = [
       }
     ],
     "name": "getSegmentId",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      }
-    ],
-    "name": "getString",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      }
-    ],
-    "name": "getUint",
     "outputs": [
       {
         "internalType": "uint256",
@@ -804,96 +789,6 @@ export const EtherbaseSourceAbi = [
         "type": "string[]"
       },
       {
-        "internalType": "bool",
-        "name": "value",
-        "type": "bool"
-      }
-    ],
-    "name": "setBool",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      },
-      {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
-    ],
-    "name": "setBytes",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      },
-      {
-        "internalType": "int256",
-        "name": "value",
-        "type": "int256"
-      }
-    ],
-    "name": "setInt",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      },
-      {
-        "internalType": "string",
-        "name": "value",
-        "type": "string"
-      }
-    ],
-    "name": "setString",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      },
-      {
-        "internalType": "uint256",
-        "name": "value",
-        "type": "uint256"
-      }
-    ],
-    "name": "setUint",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string[]",
-        "name": "segments",
-        "type": "string[]"
-      },
-      {
         "internalType": "enum EtherDatabaseLib.DataType",
         "name": "dataType",
         "type": "uint8"
@@ -937,6 +832,19 @@ export const EtherbaseSourceAbi = [
     "name": "setValues",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "validator",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ] as const;

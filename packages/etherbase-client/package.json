@@ -1,6 +1,6 @@
 {
   "name": "@msquared/etherbase-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React hooks for interacting with Etherbase smart contracts",
   "homepage": "https://github.com/msquared-io/spike-etherbase/packages/etherbase-client#readme",
   "license": "MIT",

@@ -32,6 +32,7 @@ func SetupRoutes(r *mux.Router) {
 	r.Use(corsMiddleware)
 
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintln(w, `{"status":"healthy"}`)
 	}).Methods("GET", "OPTIONS")
 
@@ -39,7 +40,9 @@ func SetupRoutes(r *mux.Router) {
 		log.Println("etherbase address")
 		cfg, err := config.LoadConfig()
 		if err != nil {
-			http.Error(w, "Failed to load config", http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -50,18 +53,20 @@ func SetupRoutes(r *mux.Router) {
 		log.Println("sources")
 		cfg, err := config.LoadConfig()
 		if err != nil {
-			http.Error(w, "Failed to load config", http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
 			return
 		}
  
 		// Get sources from registry
 		registry := sources.GetSourceRegistry()
 		if registry == nil {
-			registry = sources.NewSourceRegistry(cfg.EtherbaseAddress, nil)
+			registry = sources.NewSourceRegistry(cfg.EtherbaseAddress)
 		}
 
 		// Get sources with owners and convert to response format
-		sources := registry.GetSourcesWithOwners()
+		sources := registry.GetSources()
 		sourcesResponse := make([]map[string]string, 0, len(sources))
 		for _, info := range sources {
 			sourcesResponse = append(sourcesResponse, map[string]string{
@@ -74,39 +79,66 @@ func SetupRoutes(r *mux.Router) {
 		json.NewEncoder(w).Encode(sourcesResponse)
 	}).Methods("GET", "OPTIONS")
 
+	r.HandleFunc("/custom-contracts", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("custom contracts")
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
+			return
+		}
+
+		// Get custom contracts from registry
+		registry := sources.GetSourceRegistry()
+		if registry == nil {
+			registry = sources.NewSourceRegistry(cfg.EtherbaseAddress)
+		}
+
+		// Get custom contracts
+		customContracts := registry.GetCustomContracts()
+		customContractsResponse := make([]map[string]string, 0, len(customContracts))
+		for _, contract := range customContracts {
+			customContractsResponse = append(customContractsResponse, map[string]string{
+				"contractAddress": contract.ContractAddress.Hex(),
+				"addedBy":         contract.AddedBy.Hex(),
+				"contractABI":     contract.ContractABI,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(customContractsResponse)
+	}).Methods("GET", "OPTIONS")
+
 	r.HandleFunc("/event-definitions", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("source definitions")
 		sourceAddress := r.URL.Query().Get("sourceAddress")
 		if sourceAddress == "" {
-			http.Error(w, "Missing 'sourceAddress' query param", http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Missing 'sourceAddress' query param"})
 			return
 		}
 
 		// Get source registry
 		registry := sources.GetSourceRegistry()
 		if registry == nil {
-			http.Error(w, "Source registry not initialized", http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Source registry not initialized"})
 			return
 		}
 
 		// Get event definitions from the contract
 		definitions, err := registry.GetEventDefinitions(sourceAddress)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to get event definitions: %v", err), http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get event definitions: %v", err)})
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(definitions)
 	}).Methods("GET", "OPTIONS")
-
-	r.HandleFunc("/emit-event", func(w http.ResponseWriter, r *http.Request) {
-		// parse JSON, send to transaction pool
-		w.Write([]byte("OK"))
-	}).Methods("POST", "OPTIONS")
-
-	r.HandleFunc("/set-state", func(w http.ResponseWriter, r *http.Request) {
-		// parse JSON, send to transaction pool
-		w.Write([]byte("OK"))
-	}).Methods("POST", "OPTIONS")
 }

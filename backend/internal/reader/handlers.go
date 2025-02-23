@@ -336,25 +336,26 @@ func handleStateSubscription(conn *websocket.Conn, client *subscription.Client, 
 				client.ID: {types.SubscriptionID(subID)},
 			},
 		)
+		fmt.Println("initial state updates", updates)
 		if err != nil {
 			log.Printf("Error fetching initial state: %v", err)
 			return
 		}
 
-			if subState, ok := updates[types.SubscriptionID(subID)]; ok {
-			sendMessage(conn, "initial_state", map[string]interface{}{
-				"updates": []map[string]interface{}{
-					{
-						"type":           "state",
-						"subscriptionId": subID,
-						"data": map[string]interface{}{
-							"contractAddress": sub.ContractAddress.Hex(),
-							"state":           subState,
-						},
+		if subState, ok := updates[types.SubscriptionID(subID)]; ok {
+		sendMessage(conn, "initial_state", map[string]interface{}{
+			"updates": []map[string]interface{}{
+				{
+					"type":           "state",
+					"subscriptionId": subID,
+					"data": map[string]interface{}{
+						"contractAddress": sub.ContractAddress.Hex(),
+						"state":           subState,
 					},
 				},
-				"block": blockNumber,
-			})
+			},
+			"block": blockNumber,
+		})
 		}
 	}()
 

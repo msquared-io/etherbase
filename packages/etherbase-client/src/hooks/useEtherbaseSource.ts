@@ -15,19 +15,17 @@ import { EtherbaseSourceAbi } from "../abi/EtherbaseSource"
 import { getConfig } from "../config"
 import { fetchEventDefinitionsData } from "../etherbaseSource"
 import { WebSocketManager } from "./WebSocketManager"
+import type { UseEtherbaseSourceProps } from "./types/etherbase"
+import type { Argument } from "./types/events"
 import type { EtherstoreState } from "./types/state"
 import useWebThree from "./useWebThree"
-import { Argument } from "./types/events"
-
-export type UseEtherbaseSourceProps = Readonly<{
-  sourceAddress: Address
-}>
 
 export default function useEtherbaseSource({
   sourceAddress,
 }: UseEtherbaseSourceProps) {
   useEtherbaseContext()
-  const { httpReaderUrl, wsReaderUrl, wsWriterUrl, useBackend, privateKey } = getConfig()
+  const { httpReaderUrl, wsReaderUrl, wsWriterUrl, useBackend, privateKey } =
+    getConfig()
   const { publicClient, getWalletClient } = useWebThree()
 
   const getWalletClientInternal = useCallback(async () => {
@@ -41,10 +39,7 @@ export default function useEtherbaseSource({
   }, [getWalletClient])
 
   const executeWriteBrowser = useCallback(
-    async (
-      writeFunctionName: string,
-      args: unknown[],
-    ) => {
+    async (writeFunctionName: string, args: unknown[]) => {
       if (!publicClient) {
         throw new Error("Public client not found")
       }
@@ -53,7 +48,7 @@ export default function useEtherbaseSource({
       // check the function name is valid
       if (
         !EtherbaseSourceAbi.find(
-          (f: any) => f.type === "function" && f.name === writeFunctionName,
+          (f) => f.type === "function" && f.name === writeFunctionName,
         )
       ) {
         throw new Error(`Invalid function name: ${writeFunctionName}`)
@@ -67,7 +62,7 @@ export default function useEtherbaseSource({
         // @ts-ignore
         args,
         // currently gas estimation is broken in somnia so hardcoding a high value
-        gas: 200000n,
+        gas: 2000000n,
       })
       const receipt = await publicClient.waitForTransactionReceipt({ hash })
       console.log("Execute write receipt:", receipt)
@@ -140,10 +135,12 @@ export default function useEtherbaseSource({
       })
 
       console.log("registering event", eventName, id, eventTopic, args)
-      await executeWriteBrowser(
-        "registerEventSchema",
-        [eventName, id, eventTopic, args],
-      )
+      await executeWriteBrowser("registerEventSchema", [
+        eventName,
+        id,
+        eventTopic,
+        args,
+      ])
     },
     [executeWriteBrowser, getEventId, parseEvent],
   )

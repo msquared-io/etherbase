@@ -15,16 +15,17 @@ Etherbase is:
 `packages/frontend/`
 - an example frontend for interfacing with the backend and contract.
 
+## Getting started with Etherbase
 
-## Getting Started
+We host a live writer and reader that is used for all our demos.
+
+## Getting Started with the codebase
 
 1. Clone the repository
 
 ```bash
 git clone https://github.com/msquared-io/etherbase.git
 ```
-
-
 
 ## Demos
 
@@ -40,3 +41,58 @@ All player movement, names, and colors are synced across all clients using the b
 
 [`packages/mml-demo`](./packages/mml-demo) is [`etherbase-client`](./packages/etherbase-client) running within [MML](https://mml.io/), allowing for simple on-chain interaction on any platform that supports MML.
 More information about how to use and deploy this MML can be found in the [README of `packages/mml-demo`](./packages/mml-demo/README.md).
+
+
+## Technical Overview
+
+### Etherbase Contract
+
+See [`packages/contracts/contracts/Etherbase.sol`](./packages/contracts/contracts/Etherbase.sol) for the core logic.
+
+### Etherbase Source Contract
+
+#### Events
+
+See [`packages/contracts/contracts/EtherbaseSource.sol`](./packages/contracts/contracts/EtherbaseSource.sol) for the core logic.
+
+#### State
+
+See [`packages/contracts/contracts/EtherDatabaseLib.sol`](./packages/contracts/contracts/EtherDatabaseLib.sol) for the core logic.
+
+We store state similar to a KV store through a series of entries. Each entry has a path, a data type, and a data value.
+
+For operations on this logic, the current implementation treats them as nested KV store documents. Imagine you have this data in your KV store:
+
+```
+users:
+  alice:
+    name: "Alice"
+    balance: 100
+  bob:
+    name: "Bob"
+    balance: 50
+```
+
+We store this as a series of entries in the KV store:
+
+```
+users.alice.name: "Alice"
+users.alice.balance: 100
+users.bob.name: "Bob"
+users.bob.balance: 50
+```
+
+We take an opinionated approach in the backend where if you want to wipe the entire `alice` object, you need to set `alice` to a `nil` value.
+This will iteratively remove all entries under `alice`.
+
+There are strange behaviours when you have an object like so:
+
+```
+users.alice: "alice"
+users.alice.name: "Alice"
+users.alice.balance: 100
+```
+
+This breaks the nested KV store model as `users.alice` is a string and not an object. At the moment we ignore this, and if you set `users.alice` to a `nil` value, it will remove the entire `users.alice` entry.
+
+You can bypass this behaviour by manually interacting with the entries system as you wish.

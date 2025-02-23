@@ -7,7 +7,7 @@
   "scripts": {
     "deploy": "bash scripts/deploy.sh"
   },
-  "dependencies": {
-    "@msquared/etherbase-client": "^0.1.0"
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
   }
 }

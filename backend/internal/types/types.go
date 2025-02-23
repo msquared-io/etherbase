@@ -19,6 +19,7 @@ const (
 	TypeUnsubscribe   MessageType = "unsubscribe"
 	TypeSetValue      MessageType = "set_value"
 	TypeEmitEvent     MessageType = "emit_event"
+	TypeExecuteContractMethod MessageType = "execute_contract_method"
 	TypeUpdates       MessageType = "updates"
 	TypeError         MessageType = "error"
 	TypeInitialState  MessageType = "initial_state"
@@ -28,12 +29,6 @@ const (
 type ClientMessage struct {
 	Type MessageType     `json:"type"`
 	Data json.RawMessage `json:"data"`
-}
-
-type SubscribeMessage struct {
-	PendingID         string             `json:"pendingId"`
-	EventSubscription *EventSubscriptionRequest  `json:"eventSubscriptionRequest,omitempty"`
-	StateSubscription *StateSubscriptionRequest  `json:"stateSubscriptionRequest,omitempty"`
 }
 
 type EventSubscriptionRequest struct {
@@ -171,6 +166,12 @@ type EmitEventMessage struct {
 	Args           map[string]interface{}     `json:"args"`
 }
 
+type ExecuteContractMethodMessage struct {
+	ContractAddress common.Address            `json:"contractAddress"`
+	MethodName     string                     `json:"methodName"`
+	Args           map[string]interface{}     `json:"args"`
+}
+
 type MessageEvent struct {
 	Name string `json:"name,omitempty"`
 	ID   string `json:"id,omitempty"`
@@ -201,3 +202,8 @@ const (
 	DataTypeInt256
 	DataTypeBytes
 )
+
+func DataTypeToString(dataType DataType) string {
+	return []string{
+		"none", "string", "bool", "uint256", "int256", "bytes"}[dataType]
+}

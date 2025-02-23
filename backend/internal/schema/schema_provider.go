@@ -265,7 +265,7 @@ func (sp *SchemaProvider) AddSource(addr common.Address) error {
                         return
                     case err := <-sub.Err():
                         log.Printf("Schema watcher error for %s: %v", addr.Hex(), err)
-                        return
+                        // return // dont return as we want to keep the subscription alive and retry
                     case vLog := <-logs:
                         // Decode event ID from log data
                         eventId, err := decodeEventData(vLog.Data)
@@ -409,12 +409,12 @@ func (sp *SchemaProvider) startEtherbaseWatcher() {
         defer sp.watchDone.Done()
         
 
-		eventTopic := crypto.Keccak256Hash([]byte("CustomContractAdded(address,string)"))
+		addedTopic := crypto.Keccak256Hash([]byte("CustomContractAdded(address)"))
+		deletedTopic := crypto.Keccak256Hash([]byte("CustomContractDeleted(address)"))
         // Set up etherbase contract watcher
         query := ethereum.FilterQuery{
             Addresses: []common.Address{sp.etherbaseAddress},
             Topics: [][]common.Hash{{
-                eventTopic,
             }},
         }
         
@@ -434,26 +434,32 @@ func (sp *SchemaProvider) startEtherbaseWatcher() {
                 return
             case err := <-sub.Err():
                 log.Printf("Etherbase subscription error: %v", err)
-                return
+                // return // dont return as we want to keep the subscription alive and retry
             case vLog := <-logs:
                 // Handle CustomContractAdded event
-                contractAddr := common.BytesToAddress(vLog.Topics[1].Bytes())
+				if vLog.Topics[0] == addedTopic {
+					contractAddr := common.BytesToAddress(vLog.Topics[1].Bytes())
+					
+                    // Check if already exists
+                    if _, exists := sp.contracts.Load(contractAddr); exists {
+                        continue
+                    }
+                    
+                    // Get ABI from etherbase contract
+                    abiJSON, err := sp.getCustomContractABI(contractAddr)
+                    if err != nil {
+                        log.Printf("Failed to get ABI for %s: %v", contractAddr.Hex(), err)
+                        continue
+                    }
                 
-                // Check if already exists
-                if _, exists := sp.contracts.Load(contractAddr); exists {
-                    continue
-                }
-                
-                // Get ABI from etherbase contract
-                abiJSON, err := sp.getCustomContractABI(contractAddr)
-                if err != nil {
-                    log.Printf("Failed to get ABI for %s: %v", contractAddr.Hex(), err)
-                    continue
-                }
-                
-                if err := sp.AddCustomContract(contractAddr, "CustomContract", abiJSON); err != nil {
-                    log.Printf("Failed to add custom contract %s: %v", contractAddr.Hex(), err)
-                }
+                    if err := sp.AddCustomContract(contractAddr, "CustomContract", abiJSON); err != nil {
+                        log.Printf("Failed to add custom contract %s: %v", contractAddr.Hex(), err)
+                    }
+				} else if vLog.Topics[0] == deletedTopic {
+					contractAddr := common.BytesToAddress(vLog.Topics[1].Bytes())
+					sp.contracts.Delete(contractAddr)
+                    log.Printf("Deleted custom contract %s", contractAddr.Hex())
+				}
             }
         }
     }()
@@ -517,7 +523,8 @@ func (sp *SchemaProvider) getCustomContractABI(addr common.Address) (string, err
     }
     
     // Call the getCustomContractABI method
-    return etherbase.GetCustomContractABI(&bind.CallOpts{}, addr)
+    contract, err := etherbase.GetCustomContract(&bind.CallOpts{}, addr)
+    return contract.ContractABI, nil
 }
 
 // GetEventSchemaFromID retrieves an event schema by its ID, checking both contract-specific
