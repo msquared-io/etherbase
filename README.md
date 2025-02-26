@@ -32,7 +32,7 @@ git clone https://github.com/msquared-io/etherbase.git
 ### Example Frontend
 
 #### 3D Realtime Game
-[`packages/3d-game`](./packages/3d-game) is a 3D multiplayer game built with React, Three.js, and [`etherbase-client`](./packages/etherbase-client).
+[`packages/3dgame`](./packages/3dgame) is a 3D multiplayer game built with React, Three.js, and [`etherbase-client`](./packages/etherbase-client).
 All player movement, names, and colors are synced across all clients using the blockchain. Player updates are 20Hz by default.
 
 [The live demo](https://etherbase-demo-3dgame-496683047294.europe-west2.run.app/) runs on the [Somnia](https://somnia.network/) blockchain.
