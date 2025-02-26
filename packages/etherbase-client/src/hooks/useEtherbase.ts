@@ -17,6 +17,7 @@ export default function useEtherbase() {
   const { publicClient, getWalletClient } = useWebThree()
   const [etherbaseAddress, setEtherbaseAddress] = useState<Address | null>(null)
   const [sources, setSources] = useState<Source[]>([])
+  const [customContracts, setCustomContracts] = useState<CustomContract[]>([])
 
   useEffect(() => {
     async function fetchEtherbaseAddress() {
@@ -74,7 +75,7 @@ export default function useEtherbase() {
         functionName: writeFunctionName,
         // @ts-ignore
         args,
-        gas: 2000000n,
+        // gas: 2000000n,
       })
       const receipt = await publicClient.waitForTransactionReceipt({ hash })
       console.log("Execute write receipt:", receipt)
@@ -94,15 +95,44 @@ export default function useEtherbase() {
     // The new source address is in the first log
     const sourceAddress = receipt?.logs[0].address
 
+    // Poll for the source to appear in the sources list
+    const checkForSource = async (): Promise<void> => {
+      const currentSources = await fetchSourcesData()
+      setSources(currentSources)
+
+      const sourceFound = currentSources.some(
+        (source: Source) =>
+          source.sourceAddress.toLowerCase() === sourceAddress?.toLowerCase(),
+      )
+
+      if (!sourceFound) {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        return checkForSource()
+      }
+    }
+
+    if (sourceAddress) {
+      await checkForSource()
+    }
+
     return { receipt, sourceAddress }
   }, [executeWrite])
-
-  const [customContracts, setCustomContracts] = useState<CustomContract[]>([])
 
   const fetchCustomContracts = useCallback(async () => {
     const customContracts = await fetchCustomContractsData()
     setCustomContracts(customContracts)
   }, [])
+
+  // Poll for custom contracts every second
+  useEffect(() => {
+    fetchCustomContracts()
+
+    const intervalId = setInterval(() => {
+      fetchCustomContracts()
+    }, 1000)
+
+    return () => clearInterval(intervalId)
+  }, [fetchCustomContracts])
 
   const addCustomContract = useCallback(
     async (contractAddress: Address, contractAbi: string) => {
@@ -128,9 +158,12 @@ export default function useEtherbase() {
         contractAbi,
       ])
 
+      // Immediately fetch updated contracts
+      await fetchCustomContracts()
+
       return receipt.status === "success"
     },
-    [executeWrite],
+    [executeWrite, fetchCustomContracts],
   )
 
   const deleteCustomContract = useCallback(
@@ -138,9 +171,13 @@ export default function useEtherbase() {
       const receipt = await executeWrite("deleteCustomContract", [
         contractAddress,
       ])
+
+      // Immediately fetch updated contracts
+      await fetchCustomContracts()
+
       return receipt.status === "success"
     },
-    [executeWrite],
+    [executeWrite, fetchCustomContracts],
   )
 
   return {

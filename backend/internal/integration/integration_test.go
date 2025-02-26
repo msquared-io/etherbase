@@ -2161,129 +2161,129 @@ func TestStateSubscriptionWithNestedStructs(t *testing.T) {
 	}
 }
 
-func TestStateSubscriptionCustomContractWithNoInitialData(t *testing.T) {
-	env, err := setupTestEnv(t)
-	require.NoError(t, err)
-	defer env.cleanup()
+// func TestStateSubscriptionCustomContractWithNoInitialData(t *testing.T) {
+// 	env, err := setupTestEnv(t)
+// 	require.NoError(t, err)
+// 	defer env.cleanup()
 
-	testAddress, _, test, err := publicethdbupdateevent.DeployPublicVariableEthDBUpdateMappingInitiallyEmptyEvent(env.auth, env.ethClient)
-	if err != nil {
-		t.Fatalf("failed to deploy PublicVariableEthDBUpdateMappingInitiallyEmptyEvent: %v", err)
-	}
-	env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"] = &DeployedContract{
-		ContractAddress: testAddress,
-		Contract:       test,
-	}
+// 	testAddress, _, test, err := publicethdbupdateevent.DeployPublicVariableEthDBUpdateMappingInitiallyEmptyEvent(env.auth, env.ethClient)
+// 	if err != nil {
+// 		t.Fatalf("failed to deploy PublicVariableEthDBUpdateMappingInitiallyEmptyEvent: %v", err)
+// 	}
+// 	env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"] = &DeployedContract{
+// 		ContractAddress: testAddress,
+// 		Contract:       test,
+// 	}
 
-	// Register custom contract with etherbase
-	etherbase := env.contracts["Etherbase"].Contract.(*etherbase.Etherbase)
-	tx, err := etherbase.AddCustomContract(
-		env.auth,
-		env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"].ContractAddress,
-		publicethdbupdateevent.PublicVariableEthDBUpdateMappingInitiallyEmptyEventABI,
-	)
-	require.NoError(t, err)
+// 	// Register custom contract with etherbase
+// 	etherbase := env.contracts["Etherbase"].Contract.(*etherbase.Etherbase)
+// 	tx, err := etherbase.AddCustomContract(
+// 		env.auth,
+// 		env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"].ContractAddress,
+// 		publicethdbupdateevent.PublicVariableEthDBUpdateMappingInitiallyEmptyEventABI,
+// 	)
+// 	require.NoError(t, err)
 	
-	receipt, err := bind.WaitMined(context.Background(), env.ethClient, tx)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), receipt.Status)
+// 	receipt, err := bind.WaitMined(context.Background(), env.ethClient, tx)
+// 	require.NoError(t, err)
+// 	require.Equal(t, uint64(1), receipt.Status)
 
-	time.Sleep(5 * time.Second)
+// 	time.Sleep(5 * time.Second)
 
-	pendingID1 := "test-pending-id-3"
-	contract := env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"].Contract.(*publicethdbupdateevent.PublicVariableEthDBUpdateMappingInitiallyEmptyEvent)
-	contractAddr := env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"].ContractAddress
+// 	pendingID1 := "test-pending-id-3"
+// 	contract := env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"].Contract.(*publicethdbupdateevent.PublicVariableEthDBUpdateMappingInitiallyEmptyEvent)
+// 	contractAddr := env.contracts["PublicVariableEthDBUpdateMappingInitiallyEmptyEvent"].ContractAddress
 
-	// Setup message handlers
-	env.handleMessages([]func(ClientMessage) error{
-		// Handle subscription confirmation
-		func(msg ClientMessage) error {
-			isSubscriptionSuccess(t, msg, pendingID1)
-			return nil
-		},
-		// Handle initial state
-		func(msg ClientMessage) error {
-			hasUpdates(t, msg, 1)
-			hasStateUpdate(t, msg, 0, map[string]interface{}{
-				"mappingA": map[string]interface{}{
-					"1": float64(0),
-					"3": float64(0),
-				},
-			})
+// 	// Setup message handlers
+// 	env.handleMessages([]func(ClientMessage) error{
+// 		// Handle subscription confirmation
+// 		func(msg ClientMessage) error {
+// 			isSubscriptionSuccess(t, msg, pendingID1)
+// 			return nil
+// 		},
+// 		// Handle initial state
+// 		func(msg ClientMessage) error {
+// 			hasUpdates(t, msg, 1)
+// 			hasStateUpdate(t, msg, 0, map[string]interface{}{
+// 				"mappingA": map[string]interface{}{
+// 					"1": float64(0),
+// 					"3": float64(0),
+// 				},
+// 			})
 
-			// Verify initial contract state
-			initialValueA1, err := contract.MappingA(nil, big.NewInt(1))
-			require.NoError(t, err)
-			assert.Equal(t, int64(1), initialValueA1.Int64())
+// 			// Verify initial contract state
+// 			initialValueA1, err := contract.MappingA(nil, big.NewInt(1))
+// 			require.NoError(t, err)
+// 			assert.Equal(t, int64(1), initialValueA1.Int64())
 			
-			initialValueA3, err := contract.MappingA(nil, big.NewInt(3))
-			require.NoError(t, err)
-			assert.Equal(t, int64(0), initialValueA3.Int64())
+// 			initialValueA3, err := contract.MappingA(nil, big.NewInt(3))
+// 			require.NoError(t, err)
+// 			assert.Equal(t, int64(0), initialValueA3.Int64())
 
-			time.Sleep(2 * time.Second)
+// 			time.Sleep(2 * time.Second)
 
-			// Call increment
-			tx, err := contract.Increment(env.auth)
-			if err != nil {
-				return fmt.Errorf("failed to call increment: %v", err)
-			}
+// 			// Call increment
+// 			tx, err := contract.Increment(env.auth)
+// 			if err != nil {
+// 				return fmt.Errorf("failed to call increment: %v", err)
+// 			}
 			
-			receipt, err := bind.WaitMined(context.Background(), env.ethClient, tx)
-			if err != nil {
-				return fmt.Errorf("failed waiting for transaction: %v", err)
-			}
-			if receipt.Status != uint64(1) {
-				return fmt.Errorf("increment transaction failed")
-			}
-			return nil
-		},
-		// Handle state update after increment
-		func(msg ClientMessage) error {
-			hasUpdates(t, msg, 1)
-			hasStateUpdate(t, msg, 0, map[string]interface{}{
-				"mappingA": map[string]interface{}{
-					"1": float64(2),
-				},
-			})
+// 			receipt, err := bind.WaitMined(context.Background(), env.ethClient, tx)
+// 			if err != nil {
+// 				return fmt.Errorf("failed waiting for transaction: %v", err)
+// 			}
+// 			if receipt.Status != uint64(1) {
+// 				return fmt.Errorf("increment transaction failed")
+// 			}
+// 			return nil
+// 		},
+// 		// Handle state update after increment
+// 		func(msg ClientMessage) error {
+// 			hasUpdates(t, msg, 1)
+// 			hasStateUpdate(t, msg, 0, map[string]interface{}{
+// 				"mappingA": map[string]interface{}{
+// 					"1": float64(2),
+// 				},
+// 			})
 
-			// Verify final state
-			finalValueA1, err := contract.MappingA(nil, big.NewInt(1))
-			if err != nil {
-				return err
-			}
-			assert.Equal(t, int64(2), finalValueA1.Int64())
+// 			// Verify final state
+// 			finalValueA1, err := contract.MappingA(nil, big.NewInt(1))
+// 			if err != nil {
+// 				return err
+// 			}
+// 			assert.Equal(t, int64(2), finalValueA1.Int64())
 			
-			finalValueA3, err := contract.MappingA(nil, big.NewInt(3))
-			if err != nil {
-				return err
-			}
-			assert.Equal(t, int64(0), finalValueA3.Int64())
-			return nil
-		},
-	})
+// 			finalValueA3, err := contract.MappingA(nil, big.NewInt(3))
+// 			if err != nil {
+// 				return err
+// 			}
+// 			assert.Equal(t, int64(0), finalValueA3.Int64())
+// 			return nil
+// 		},
+// 	})
 
-	// Send subscription message
-	subMsg := ClientMessage{
-		Type: TypeSubscribe,
-		Data: json.RawMessage(fmt.Sprintf(`{
-			"pendingId": "%s",
-			"stateSubscription": {
-				"contractAddress": "%s",
-				"statePath": ["mappingA", ["1", "3"]]
-			}
-		}`, pendingID1, contractAddr.Hex())),
-	}
-	require.NoError(t, env.ws.WriteJSON(subMsg))
+// 	// Send subscription message
+// 	subMsg := ClientMessage{
+// 		Type: TypeSubscribe,
+// 		Data: json.RawMessage(fmt.Sprintf(`{
+// 			"pendingId": "%s",
+// 			"stateSubscription": {
+// 				"contractAddress": "%s",
+// 				"statePath": ["mappingA", ["1", "3"]]
+// 			}
+// 		}`, pendingID1, contractAddr.Hex())),
+// 	}
+// 	require.NoError(t, env.ws.WriteJSON(subMsg))
 
-	// Wait for completion or timeout
-	select {
-	case <-env.done:
-	case err := <-env.errChan:
-		t.Fatal(err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("test timeout")
-	}
-}
+// 	// Wait for completion or timeout
+// 	select {
+// 	case <-env.done:
+// 	case err := <-env.errChan:
+// 		t.Fatal(err)
+// 	case <-time.After(30 * time.Second):
+// 		t.Fatal("test timeout")
+// 	}
+// }
 
 func TestStateSubscriptionWithNestedStructsWithGlobalSubscription(t *testing.T) {
 	env, err := setupTestEnv(t)

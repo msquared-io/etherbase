@@ -7,16 +7,15 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/msquared-io/etherbase/backend/internal/abiparser"
 	"github.com/msquared-io/etherbase/backend/internal/integration/go/etherbase"
 	"github.com/msquared-io/etherbase/backend/internal/integration/go/etherbasesource"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
@@ -179,146 +178,145 @@ func (sp *SchemaProvider) AddSource(addr common.Address) error {
 
         sp.contracts.Store(addr, c)
 
-        // Set up schema watcher if not already watching
+        // Set up schema poller if not already watching
         if _, exists := sp.schemaWatchers.Load(addr); !exists {
-            log.Printf("Starting schema watcher for source %s", addr.Hex())
+            log.Printf("Starting schema poller for source %s", addr.Hex())
             
-            // Create context for this watcher
+            // Create context for this poller
             ctx, cancel := context.WithCancel(context.Background())
             
             // Store cleanup function
             sp.schemaWatchers.Store(addr, cancel)
 
-            // Watch for SchemaRegistered events
-            schemaRegisteredTopic := crypto.Keccak256Hash([]byte("SchemaRegistered(string,string)"))
-            query := ethereum.FilterQuery{
-                Addresses: []common.Address{addr},
-                Topics: [][]common.Hash{{schemaRegisteredTopic}},
-            }
+            // Start polling for schemas
+            go sp.startSchemaPoller(ctx, addr)
+        }
+    }
+    return nil
+}
 
-            logs := make(chan types.Log)
-            sub, err := sp.ethClient.SubscribeFilterLogs(ctx, query, logs)
+// startSchemaPoller polls for new schemas every second
+func (sp *SchemaProvider) startSchemaPoller(ctx context.Context, addr common.Address) {
+    sp.watchDone.Add(1)
+    defer sp.watchDone.Done()
+
+    // Create contract binding for the source
+    source, err := etherbasesource.NewEtherbaseSource(addr, sp.ethClient)
+    if err != nil {
+        log.Printf("Failed to create source binding: %v", err)
+        return
+    }
+
+    // Get initial event names and schemas
+    knownEventNames := make(map[string]bool)
+    
+    // Load initial schemas
+    eventNames, err := source.GetRegisteredEventNames(&bind.CallOpts{})
+    if err != nil {
+        log.Printf("Failed to get registered event names: %v", err)
+    } else {
+        for _, eventName := range eventNames {
+            knownEventNames[eventName] = true
+            schema, err := source.GetEventSchemaFromName(&bind.CallOpts{}, eventName)
             if err != nil {
-                log.Printf("Error subscribing to SchemaRegistered events: %v", err)
-                return err
+                log.Printf("Failed to get schema for event %s: %v", eventName, err)
+                continue
             }
 
-            go func() {
-                defer sub.Unsubscribe()
+            abi, err := getAbiFromEventSchema(&schema)
+            if err != nil {
+                log.Printf("Failed to get ABI for event %s: %v", eventName, err)
+                continue
+            }
+            
+            eventSchema := &EventSchema{
+                Name:           schema.Name,
+                ID:             schema.Id,
+                EventTopic:     schema.EventTopic,
+                NumIndexedArgs: int(schema.NumIndexedArgs),
+                Abi:            abi,
+            }
 
-                // Create contract binding for the source
-                source, err := etherbasesource.NewEtherbaseSource(addr, sp.ethClient)
-                if err != nil {
-                    log.Printf("Failed to create source binding: %v", err)
-                    return
-                }
+            // Convert args
+            for _, arg := range schema.Args {
+                eventSchema.Args = append(eventSchema.Args, Argument{
+                    Name:      arg.Name,
+                    ArgType:   arg.ArgType,
+                    IsIndexed: arg.IsIndexed,
+                })
+            }
 
-                // Get initial event names and schemas
-                eventNames, err := source.GetRegisteredEventNames(&bind.CallOpts{})
-                if err != nil {
-                    log.Printf("Failed to get registered event names: %v", err)
-                } else {
-                    for _, eventName := range eventNames {
-                        schema, err := source.GetEventSchemaFromName(&bind.CallOpts{}, eventName)
-                        if err != nil {
-                            log.Printf("Failed to get schema for event %s: %v", eventName, err)
-                            continue
-                        }
-
-						abi, err := getAbiFromEventSchema(&schema)
-						if err != nil {
-							log.Printf("Failed to get ABI for event %s: %v", eventName, err)
-							continue
-						}
-                        
-                        eventSchema := &EventSchema{
-                            Name:           schema.Name,
-                            ID:             schema.Id,
-                            EventTopic:     schema.EventTopic,
-                            NumIndexedArgs: int(schema.NumIndexedArgs),
-							Abi: abi,
-                        }
-
-                        // Convert args
-                        for _, arg := range schema.Args {
-                            eventSchema.Args = append(eventSchema.Args, Argument{
-                                Name:      arg.Name,
-                                ArgType:   arg.ArgType,
-                                IsIndexed: arg.IsIndexed,
-                            })
-                        }
-
-                        // Store in contract schema
-                        if c, ok := sp.contracts.Load(addr); ok {
-                            contract := c.(*ContractSchema)
-                            contract.Events[eventSchema.ID] = eventSchema
-                            contract.Names[eventSchema.Name] = eventSchema.ID
-							fmt.Printf("Added schema for event %s on contract %s", eventSchema.Name, addr.Hex())
-                        }
-                    }
-                }
-
-                // Handle incoming events
-                for {
-                    select {
-                    case <-ctx.Done():
-                        return
-                    case err := <-sub.Err():
-                        log.Printf("Schema watcher error for %s: %v", addr.Hex(), err)
-                        // return // dont return as we want to keep the subscription alive and retry
-                    case vLog := <-logs:
-                        // Decode event ID from log data
-                        eventId, err := decodeEventData(vLog.Data)
-                        if err != nil {
-                            log.Printf("Failed to decode event data: %v", err)
-                            continue
-                        }
-
-                        // Get schema from contract
-                        schema, err := source.GetEventSchemaFromId(&bind.CallOpts{}, eventId)
-                        if err != nil {
-                            log.Printf("Failed to get schema for event ID %s: %v", eventId, err)
-                            continue
-                        }
-
-						abi, err := getAbiFromEventSchema(&schema)
-						if err != nil {
-							log.Printf("Failed to get ABI for event %s: %v", schema.Name, err)
-							continue
-						}
-                        
-
-                        eventSchema := &EventSchema{
-                            Name:           schema.Name,
-                            ID:             schema.Id,
-                            EventTopic:     schema.EventTopic,
-                            NumIndexedArgs: int(schema.NumIndexedArgs),
-							Abi: abi,
-                        }
-
-                        // Convert args
-                        for _, arg := range schema.Args {
-                            eventSchema.Args = append(eventSchema.Args, Argument{
-                                Name:      arg.Name,
-                                ArgType:   arg.ArgType,
-                                IsIndexed: arg.IsIndexed,
-                            })
-                        }
-
-                        // Store in contract schema
-                        if c, ok := sp.contracts.Load(addr); ok {
-                            contract := c.(*ContractSchema)
-                            contract.Events[eventSchema.ID] = eventSchema
-                            contract.Names[eventSchema.Name] = eventSchema.ID
-                            log.Printf("Added schema for event %s on contract %s", eventSchema.Name, addr.Hex())
-                        }
-                    }
-                }
-            }()
+            // Store the schema
+            if c, ok := sp.contracts.Load(addr); ok {
+                contract := c.(*ContractSchema)
+                contract.Events[eventSchema.ID] = eventSchema
+                contract.Names[eventSchema.Name] = eventSchema.ID
+            }
         }
     }
 
-    return nil
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            log.Printf("Schema poller for %s stopped", addr.Hex())
+            return
+        case <-ticker.C:
+            // Poll for new event names
+            eventNames, err := source.GetRegisteredEventNames(&bind.CallOpts{})
+            if err != nil {
+                log.Printf("Failed to poll registered event names: %v", err)
+                continue
+            }
+
+            // Check for new event names
+            for _, eventName := range eventNames {
+                if !knownEventNames[eventName] {
+                    // New event found
+                    knownEventNames[eventName] = true
+                    log.Printf("New event schema detected: %s", eventName)
+                    
+                    schema, err := source.GetEventSchemaFromName(&bind.CallOpts{}, eventName)
+                    if err != nil {
+                        log.Printf("Failed to get schema for event %s: %v", eventName, err)
+                        continue
+                    }
+
+                    abi, err := getAbiFromEventSchema(&schema)
+                    if err != nil {
+                        log.Printf("Failed to get ABI for event %s: %v", eventName, err)
+                        continue
+                    }
+                    
+                    eventSchema := &EventSchema{
+                        Name:           schema.Name,
+                        ID:             schema.Id,
+                        EventTopic:     schema.EventTopic,
+                        NumIndexedArgs: int(schema.NumIndexedArgs),
+                        Abi:            abi,
+                    }
+
+                    // Convert args
+                    for _, arg := range schema.Args {
+                        eventSchema.Args = append(eventSchema.Args, Argument{
+                            Name:      arg.Name,
+                            ArgType:   arg.ArgType,
+                            IsIndexed: arg.IsIndexed,
+                        })
+                    }
+
+                    // Store the schema
+                    if c, ok := sp.contracts.Load(addr); ok {
+                        contract := c.(*ContractSchema)
+                        contract.Events[eventSchema.ID] = eventSchema
+                        contract.Names[eventSchema.Name] = eventSchema.ID
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Example method for adding custom contract
@@ -408,61 +406,114 @@ func (sp *SchemaProvider) startEtherbaseWatcher() {
     go func() {
         defer sp.watchDone.Done()
         
-
-		addedTopic := crypto.Keccak256Hash([]byte("CustomContractAdded(address)"))
-		deletedTopic := crypto.Keccak256Hash([]byte("CustomContractDeleted(address)"))
-        // Set up etherbase contract watcher
-        query := ethereum.FilterQuery{
-            Addresses: []common.Address{sp.etherbaseAddress},
-            Topics: [][]common.Hash{{
-            }},
-        }
+        // Start polling for custom contracts
+        ticker := time.NewTicker(1 * time.Second)
+        defer ticker.Stop()
         
-        logs := make(chan types.Log)
-        sub, err := sp.ethClient.SubscribeFilterLogs(ctx, query, logs)
-        if err != nil {
-            log.Printf("Error subscribing to etherbase events: %v", err)
-            return
+        // Get initial custom contracts
+        if err := sp.pollCustomContracts(); err != nil {
+            log.Printf("Error in initial custom contracts poll: %v", err)
         }
-        defer sub.Unsubscribe()
-
-
         
         for {
             select {
             case <-ctx.Done():
+                log.Printf("Etherbase watcher stopped")
                 return
-            case err := <-sub.Err():
-                log.Printf("Etherbase subscription error: %v", err)
-                // return // dont return as we want to keep the subscription alive and retry
-            case vLog := <-logs:
-                // Handle CustomContractAdded event
-				if vLog.Topics[0] == addedTopic {
-					contractAddr := common.BytesToAddress(vLog.Topics[1].Bytes())
-					
-                    // Check if already exists
-                    if _, exists := sp.contracts.Load(contractAddr); exists {
-                        continue
-                    }
-                    
-                    // Get ABI from etherbase contract
-                    abiJSON, err := sp.getCustomContractABI(contractAddr)
-                    if err != nil {
-                        log.Printf("Failed to get ABI for %s: %v", contractAddr.Hex(), err)
-                        continue
-                    }
-                
-                    if err := sp.AddCustomContract(contractAddr, "CustomContract", abiJSON); err != nil {
-                        log.Printf("Failed to add custom contract %s: %v", contractAddr.Hex(), err)
-                    }
-				} else if vLog.Topics[0] == deletedTopic {
-					contractAddr := common.BytesToAddress(vLog.Topics[1].Bytes())
-					sp.contracts.Delete(contractAddr)
-                    log.Printf("Deleted custom contract %s", contractAddr.Hex())
-				}
+            case <-ticker.C:
+                if err := sp.pollCustomContracts(); err != nil {
+                    log.Printf("Error polling custom contracts: %v", err)
+                }
             }
         }
     }()
+}
+
+// pollCustomContracts fetches all custom contracts from the Etherbase contract
+func (sp *SchemaProvider) pollCustomContracts() error {
+    etherbase, err := etherbase.NewEtherbase(sp.etherbaseAddress, sp.ethClient)
+    if err != nil {
+        return fmt.Errorf("failed to create etherbase binding: %w", err)
+    }
+    
+    // Get all custom contracts
+    customContracts, err := etherbase.GetCustomContracts(&bind.CallOpts{})
+    if err != nil {
+        return fmt.Errorf("failed to get custom contracts: %w", err)
+    }
+    
+    // Track current contracts to detect deletions
+    currentContracts := make(map[common.Address]bool)
+    
+    // Process each contract
+    for _, contract := range customContracts {
+        contractAddr := contract.ContractAddress
+        currentContracts[contractAddr] = true
+        
+        // Check if already exists
+        if _, exists := sp.contracts.Load(contractAddr); exists {
+            continue
+        }
+        
+        // Add the new contract
+        if err := sp.AddCustomContract(contractAddr, "CustomContract", contract.ContractABI); err != nil {
+            log.Printf("Failed to add custom contract %s: %v", contractAddr.Hex(), err)
+        } else {
+            log.Printf("Added custom contract %s", contractAddr.Hex())
+        }
+    }
+    
+    // Check for deleted contracts
+    sp.contracts.Range(func(key, value interface{}) bool {
+        addr := key.(common.Address)
+        // Skip etherbase address and source contracts
+        if addr == sp.etherbaseAddress || sp.isSourceContract(addr) {
+            return true
+        }
+        
+        if !currentContracts[addr] {
+            // Contract was deleted
+            sp.contracts.Delete(addr)
+            log.Printf("Deleted custom contract %s", addr.Hex())
+        }
+        return true
+    })
+    
+    return nil
+}
+
+// isSourceContract checks if the address is a source contract
+func (sp *SchemaProvider) isSourceContract(addr common.Address) bool {
+    // Iterate through all contracts to find sources
+    var isSource bool
+    sp.contracts.Range(func(key, value interface{}) bool {
+        contract := value.(*ContractSchema)
+        if contract.Name == "EtherbaseSource" {
+            isSource = true
+            return false // stop iteration
+        }
+        return true
+    })
+    return isSource
+}
+
+// Modify the schema watcher in AddSource
+func (sp *SchemaProvider) startSchemaWatcher(addr common.Address) error {
+    // Check if already watching
+    if _, exists := sp.schemaWatchers.Load(addr); exists {
+        return nil
+    }
+
+    // Create context for this watcher
+    ctx, cancel := context.WithCancel(context.Background())
+    
+    // Store cleanup function
+    sp.schemaWatchers.Store(addr, cancel)
+    
+    // Start the schema poller
+    go sp.startSchemaPoller(ctx, addr)
+    
+    return nil
 }
 
 func (sp *SchemaProvider) StopWatching() {
@@ -514,17 +565,6 @@ func (sp *SchemaProvider) getEventArgsSignature(args []Argument) string {
 
 func (sp *SchemaProvider) getEventID(topic common.Hash, numIndexedArgs int) string {
     return fmt.Sprintf("%s:%d", topic.Hex(), numIndexedArgs)
-}
-
-func (sp *SchemaProvider) getCustomContractABI(addr common.Address) (string, error) {
-    etherbase, err := etherbase.NewEtherbase(sp.etherbaseAddress, sp.ethClient)
-    if err != nil {
-        return "", err
-    }
-    
-    // Call the getCustomContractABI method
-    contract, err := etherbase.GetCustomContract(&bind.CallOpts{}, addr)
-    return contract.ContractABI, nil
 }
 
 // GetEventSchemaFromID retrieves an event schema by its ID, checking both contract-specific

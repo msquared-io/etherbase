@@ -16,6 +16,7 @@ import (
 
 var (
 	subscribers = &sync.Map{} // maps *websocket.Conn to *subscription.Client
+	connWriteMutexes = &sync.Map{} // maps *websocket.Conn to *sync.Mutex
 )
 
 // Add the upgrader as a package-level variable that can be set from server.go
@@ -47,6 +48,10 @@ type SubscribeMessage struct {
 func HandleReadWebSocket(conn *websocket.Conn, r *http.Request) {
 	// Set read limit
 	conn.SetReadLimit(512 * 1024) // 512KB
+
+	// Create write mutex for this connection
+	writeMutex := &sync.Mutex{}
+	connWriteMutexes.Store(conn, writeMutex)
 
 	// Configure read deadline and pong handler
 	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -84,6 +89,7 @@ func HandleReadWebSocket(conn *websocket.Conn, r *http.Request) {
 
 	defer func() {
 		close(done) // Stop ping goroutine
+		connWriteMutexes.Delete(conn)
 		if err := conn.Close(); err != nil {
 			log.Printf("[websocket-reader] Error closing connection for client %s: %v", clientID, err)
 		}
@@ -132,11 +138,17 @@ func sendError(conn *websocket.Conn, errMsg string) {
 }
 
 func sendMessage(conn *websocket.Conn, msgType string, data interface{}) {
+	if mutex, ok := connWriteMutexes.Load(conn); ok {
+		mutex.(*sync.Mutex).Lock()
+		defer mutex.(*sync.Mutex).Unlock()
+	}
+
 	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	msg := map[string]interface{}{
 		"type": msgType,
 		"data": data,
 	}
+	
 	if err := conn.WriteJSON(msg); err != nil {
 		log.Printf("[websocket-reader] Error sending message type '%s': %v", msgType, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"reflect"
 	"sync"
@@ -98,6 +99,7 @@ type StreamingView struct {
 	client           *ethclient.Client
 	lastProcessedBlock uint64
 	lastProcessedMu    sync.RWMutex
+	blockSemaphore     chan struct{} // Semaphore to limit concurrent block processing
 }
 
 // NewStreamingView creates a new StreamingView instance
@@ -105,6 +107,7 @@ func NewStreamingView(client *ethclient.Client, onFlush func(updates *ViewCallba
 	sv := &StreamingView{
 		onFlush:           onFlush,
 		client:            client,
+		blockSemaphore:    make(chan struct{}, 10), // Allow up to 10 concurrent block processing goroutines
 	}
 	return sv
 }
@@ -113,47 +116,146 @@ func NewStreamingView(client *ethclient.Client, onFlush func(updates *ViewCallba
 func (sv *StreamingView) Start(ctx context.Context) error {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
-	startBlock, err := sv.client.BlockNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get start block: %w", err)
-	}
-	log.Printf("Starting streaming view at block %d", startBlock)
-
 	sv.shouldStop.Store(false)
 
+	// Start the subscription loop
+	go func() {
+		backoff := time.Duration(0) // Start with zero backoff
+		maxBackoff := 30 * time.Second
+		isFirstAttempt := true
+		var connectionAttempts int
 
+		for {
+			if sv.shouldStop.Load() {
+				return
+			}
+
+			if err := sv.startSubscription(ctx); err != nil {
+				connectionAttempts++
+				log.Printf("Error in subscription: %v", err)
+				if !isFirstAttempt {
+					log.Printf("Retrying in %v", backoff)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+					// Set initial backoff after first attempt
+					if isFirstAttempt {
+						backoff = time.Second
+						isFirstAttempt = false
+					} else {
+						// Exponential backoff with max for subsequent retries
+						backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
+					}
+					continue
+				}
+			}
+
+			if connectionAttempts > 0 {
+				log.Printf("Successfully reconnected to blockchain events stream after %d attempts", connectionAttempts)
+			} else {
+				log.Printf("Successfully connected to blockchain events stream")
+			}
+
+			// Reset backoff and first attempt flag on successful connection
+			backoff = time.Duration(0)
+			isFirstAttempt = true
+			connectionAttempts = 0
+		}
+	}()
+
+	return nil
+}
+
+// startSubscription handles a single subscription lifecycle
+func (sv *StreamingView) startSubscription(ctx context.Context) error {
+	log.Printf("Starting new blockchain subscription...")
+	
+	// Get current block number
+	currentBlock, err := sv.client.BlockNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current block: %w", err)
+	}
+	log.Printf("Current block number: %d", currentBlock)
+
+	// Check for missed blocks
+	sv.lastProcessedMu.RLock()
+	lastProcessed := sv.lastProcessedBlock
+	sv.lastProcessedMu.RUnlock()
+
+	// If we've missed blocks, process them first
+	if lastProcessed > 0 && currentBlock > lastProcessed+1 {
+		log.Printf("Detected missed blocks from %d to %d, processing...", lastProcessed+1, currentBlock)
+		var missedBlocksWg sync.WaitGroup
+		
+		for blockNum := lastProcessed + 1; blockNum <= currentBlock; blockNum++ {
+			if sv.shouldStop.Load() {
+				return nil
+			}
+
+			missedBlocksWg.Add(1)
+			go func(blockNum uint64) {
+				// Acquire semaphore
+				sv.blockSemaphore <- struct{}{}
+				defer func() {
+					// Release semaphore
+					<-sv.blockSemaphore
+					missedBlocksWg.Done()
+				}()
+				
+				block, err := sv.client.BlockByNumber(ctx, big.NewInt(int64(blockNum)))
+				if err != nil {
+					log.Printf("Failed to get missed block %d: %v", blockNum, err)
+					return
+				}
+
+				if err := sv.handleNewBlock(ctx, block.Header()); err != nil {
+					log.Printf("Error handling missed block %d: %v", blockNum, err)
+				}
+			}(blockNum)
+		}
+		
+		// Wait for all missed blocks to be processed
+		missedBlocksWg.Wait()
+		log.Printf("Finished processing all missed blocks")
+	}
+
+	// Start new subscription
 	headers := make(chan *ethTypes.Header)
 	sub, err := sv.client.SubscribeNewHead(ctx, headers)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to new headers: %w", err)
 	}
+	defer sub.Unsubscribe()
 
-	go func() {
-		defer sub.Unsubscribe()
-
-		for {
-			select {
-			case err := <-sub.Err():
-				log.Printf("Error in block subscription: %v", err)
-				// return // dont return as we want to keep the subscription alive and retry
-			case header := <-headers:
-				if sv.shouldStop.Load() {
-					return
-				}
-
-				log.Printf("Processing block %d", header.Number.Uint64())
-				go func() {
-					if err := sv.handleNewBlock(ctx, header); err != nil {
-						log.Printf("Error handling block: %v", err)
-					}
-				}()
-			case <-ctx.Done():
-				return
+	for {
+		select {
+		case err := <-sub.Err():
+			return fmt.Errorf("subscription error: %w", err)
+		case header := <-headers:
+			if sv.shouldStop.Load() {
+				return nil
 			}
-		}
-	}()
 
-	return nil
+			log.Printf("Processing block %d", header.Number.Uint64())
+			// Process each new block in a separate goroutine
+			go func(ctx context.Context, header *ethTypes.Header) {
+				// Acquire semaphore
+				sv.blockSemaphore <- struct{}{}
+				defer func() {
+					// Release semaphore
+					<-sv.blockSemaphore
+				}()
+				
+				if err := sv.handleNewBlock(ctx, header); err != nil {
+					log.Printf("Error handling block %d: %v", header.Number.Uint64(), err)
+				}
+			}(ctx, header)
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 // Stop halts the event watching
@@ -176,15 +278,17 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 		log.Printf("Skipping empty block %d", header.Number.Uint64())
 		return nil
 	}
-	
+
+	blockTime := time.Unix(int64(header.Time), 0)
 	blockNumber := header.Number.Uint64()
 	startTime := time.Now()
-	log.Printf("Processing block %d, start time: %v", blockNumber, startTime)
+	log.Printf("Processing block %d, start time: %v, block time: %v (delay: %v)", blockNumber, startTime, blockTime, time.Since(blockTime))
 
 	// Skip if we've already processed this block
 	sv.lastProcessedMu.RLock()
 	if blockNumber <= sv.lastProcessedBlock {
 		sv.lastProcessedMu.RUnlock()
+		log.Printf("Block %d already processed, skipping", blockNumber)
 		return nil
 	}
 	sv.lastProcessedMu.RUnlock()
@@ -245,6 +349,8 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 
 	if len(logs) == 0 {
 		log.Printf("No logs found in block %d", blockNumber)
+		// Even if no logs, we still need to update lastProcessedBlock
+		sv.updateLastProcessedBlock(blockNumber)
 		return nil
 	}
 
@@ -258,6 +364,8 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 
 	if len(decodedResult.DecodedEvents) == 0 {
 		log.Printf("No events found in block %d", blockNumber)
+		// Even if no events, we still need to update lastProcessedBlock
+		sv.updateLastProcessedBlock(blockNumber)
 		return nil
 	}
 
@@ -268,13 +376,15 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 	defer sv.updatesMu.Unlock()
 
 	// Get updates from all events
-	updates, err := sv.getUpdatesFromEvents(ctx, decodedResult.DecodedEvents)
+	updates, err := sv.getUpdatesFromEvents(ctx, decodedResult.DecodedEvents, header.Number)
 	if err != nil {
 		return fmt.Errorf("failed to get updates: %w", err)
 	}
 
 	if len(updates.EventUpdates) == 0 && len(updates.StateUpdates) == 0 {
 		log.Printf("No updates found in block %d", blockNumber)
+		// Even if no updates, we still need to update lastProcessedBlock
+		sv.updateLastProcessedBlock(blockNumber)
 		return nil
 	}
 
@@ -290,14 +400,21 @@ func (sv *StreamingView) handleNewBlock(ctx context.Context, header *ethTypes.He
 	}
 
 	// Update last processed block
-	sv.lastProcessedMu.Lock()
-	if blockNumber > sv.lastProcessedBlock {
-		sv.lastProcessedBlock = blockNumber
-	}
-	sv.lastProcessedMu.Unlock()
+	sv.updateLastProcessedBlock(blockNumber)
 
 	log.Printf("Processed block %d in %v", blockNumber, time.Since(startTime))
 	return nil
+}
+
+// Helper method to update lastProcessedBlock in a thread-safe way
+func (sv *StreamingView) updateLastProcessedBlock(blockNumber uint64) {
+	sv.lastProcessedMu.Lock()
+	defer sv.lastProcessedMu.Unlock()
+	
+	if blockNumber > sv.lastProcessedBlock {
+		sv.lastProcessedBlock = blockNumber
+		log.Printf("Updated last processed block to %d", blockNumber)
+	}
 }
 
 func (sv *StreamingView) decodeLogsIntoEvents(logs []ethTypes.Log) (*DecodedEventsResult, error) {
@@ -339,13 +456,11 @@ func (sv *StreamingView) getEventIDFromLog(log ethTypes.Log) string {
 	return fmt.Sprintf("%s:%d", log.Topics[0].Hex(), len(log.Topics)-1)
 }
 
-func (sv *StreamingView) getUpdatesFromEvents(ctx context.Context, decodedEvents []DecodedEvent) (*UpdatesResult, error) {
+func (sv *StreamingView) getUpdatesFromEvents(ctx context.Context, decodedEvents []DecodedEvent, blockNumber *big.Int) (*UpdatesResult, error) {
 	result := &UpdatesResult{
 		EventUpdates:  make([]SubscriberEventUpdate, 0),
 		StateUpdates: make([]SubscriberStateUpdate, 0),
 	}
-
-	fullContractUpdates := make(map[common.Address]bool)
 	
 	for _, event := range decodedEvents {
 		// Track transaction indices
@@ -372,15 +487,12 @@ func (sv *StreamingView) getUpdatesFromEvents(ctx context.Context, decodedEvents
 				result.StateUpdates = append(result.StateUpdates, stateUpdate...)
 			} else {
 				// Handle other state-changing events
-				if !fullContractUpdates[event.ContractAddress] {
-					stateUpdates, err := sv.handleContractStateUpdate(ctx, event, subs.StateSubscriptions)
-					if err != nil {
-							log.Printf("Error handling contract state update: %v", err)
-						continue
-					}
-					result.StateUpdates = append(result.StateUpdates, stateUpdates...)
-					fullContractUpdates[event.ContractAddress] = true
+				stateUpdates, err := sv.handleContractStateUpdate(ctx, event, subs.StateSubscriptions, blockNumber)
+				if err != nil {
+						log.Printf("Error handling contract state update: %v", err)
+					continue
 				}
+				result.StateUpdates = append(result.StateUpdates, stateUpdates...)
 			}
 		}
 
@@ -806,17 +918,21 @@ func (sv *StreamingView) handleEthDBPathUpdate(event DecodedEvent, stateSubscrip
 	return updates, nil
 }
 
-func (sv *StreamingView) handleContractStateUpdate(ctx context.Context, event DecodedEvent, stateSubscriptions map[types.ClientID][]types.SubscriptionID) ([]SubscriberStateUpdate, error) {
+func (sv *StreamingView) handleContractStateUpdate(ctx context.Context, event DecodedEvent, stateSubscriptions map[types.ClientID][]types.SubscriptionID, blockNumber *big.Int) ([]SubscriberStateUpdate, error) {
 	updates := make([]SubscriberStateUpdate, 0)
 
 	// Get state manager instance
 	stateManager := state.GetManager()
 
+	log.Printf("Handling contract state update for contract %s", event.ContractAddress.String())
+
 	// Fetch state for all subscriptions
-	stateResult, _, err := stateManager.FetchStateForSubscriptions(ctx, stateSubscriptions)
+	stateResult, _, err := stateManager.FetchStateForSubscriptions(ctx, stateSubscriptions, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch state: %w", err)
 	}
+
+	log.Printf("State result: %v", stateResult)
 
 	// Create updates for each subscription
 	for subscriptionID, subState := range stateResult {

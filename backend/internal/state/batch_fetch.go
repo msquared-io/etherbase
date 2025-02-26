@@ -183,7 +183,7 @@ func convertArgToType(arg string, abiType abi.Type) (interface{}, error) {
 }
 
 // BatchFetchContractStates fetches state from multiple contracts
-func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest) (*BatchFetchResult, error) {
+func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest, blockNumber *big.Int) (*BatchFetchResult, error) {
 	// Group requests by contract address
 	grouped := make(map[common.Address][]StateFetchRequest)
 	for _, r := range requests {
@@ -404,7 +404,7 @@ func BatchFetchContractStates(ctx context.Context, requests []StateFetchRequest)
 	}
 
 	// Execute multicall
-	results, err := multicall.ExecuteMulticall(ctx, multicallQueries, true)
+	results, err := multicall.ExecuteMulticall(ctx, multicallQueries, true, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("multicall failed: %w", err)
 	}

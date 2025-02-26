@@ -8,7 +8,16 @@ import { useEtherbasePermissions } from "@msquared/etherbase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { CheckIcon, ChevronDownIcon, TrashIcon } from "lucide-react"
+import { 
+  CheckIcon, 
+  ChevronDownIcon, 
+  TrashIcon, 
+  CopyIcon, 
+  InfoIcon,
+  WalletIcon,
+  PlusIcon,
+  ShieldIcon
+} from "lucide-react"
 import { Listbox, Transition } from "@headlessui/react"
 import {
   Dialog,
@@ -18,28 +27,47 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
-// Roles data
+// Roles data with added color information
 const ROLES = [
   {
     key: 0,
     name: "Emit",
     description: "Can emit events",
+    color: "bg-accent/80",
+    textColor: "text-accent-foreground",
   },
   {
     key: 1,
     name: "Define",
     description: "Can define new events",
+    color: "bg-accent/80",
+    textColor: "text-accent-foreground",
   },
   {
     key: 2,
     name: "Grant",
     description: "Can grant or revoke permissions",
+    color: "bg-accent/80",
+    textColor: "text-accent-foreground",
   },
   {
     key: 3,
     name: "Database Setter",
     description: "Can set values in the database",
+    color: "bg-accent/80",
+    textColor: "text-accent-foreground",
   },
 ] as const
 
@@ -64,6 +92,28 @@ interface MultiSelectProps {
   disabled?: boolean
 }
 
+// Helper function to truncate wallet addresses
+function truncateAddress(address: string): string {
+  if (!address) return "";
+  return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+}
+
+// Role badge component for consistent role display
+function RoleBadge({ roleKey }: { roleKey: number }) {
+  const role = ROLES.find(r => r.key === roleKey);
+  if (!role) return null;
+  
+  return (
+    <Badge 
+      variant="secondary"
+      className="font-mono"
+      title={role.description}
+    >
+      {role.name}
+    </Badge>
+  );
+}
+
 function MultiSelect({
   options,
   selected,
@@ -73,7 +123,7 @@ function MultiSelect({
   return (
     <Listbox value={selected} onChange={onChange} multiple disabled={disabled}>
       <div className="relative">
-        <Listbox.Button className="relative w-full cursor-default rounded border border-gray-300 bg-black text-white py-2 pl-3 pr-10 text-left focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <Listbox.Button className="relative w-full cursor-default rounded-md border border-input bg-background text-foreground py-2 pl-3 pr-10 text-left focus:outline-none focus:ring-2 focus:ring-ring shadow-sm transition-all hover:border-accent">
           <span className="block truncate">
             {selected.length
               ? selected
@@ -83,10 +133,10 @@ function MultiSelect({
                       roleKey.toString(),
                   )
                   .join(", ")
-              : "None"}
+              : "Select roles..."}
           </span>
           <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-            <ChevronDownIcon className="h-5 w-5 text-gray-400" />
+            <ChevronDownIcon className="h-5 w-5 text-muted-foreground" />
           </span>
         </Listbox.Button>
         <Transition
@@ -95,16 +145,16 @@ function MultiSelect({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded border border-gray-300 bg-black text-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+          <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-input bg-background text-foreground py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
             {options.map((role) => (
               <Listbox.Option
                 key={role.key}
                 value={role.key}
                 disabled={false}
                 className={({ active, disabled }) =>
-                  `relative cursor-default select-none py-2 pl-10 pr-4 text-white ${
-                    active ? "bg-gray-600" : ""
-                  }`
+                  `relative cursor-default select-none py-2 pl-10 pr-4 ${
+                    active ? "bg-accent/5" : ""
+                  } ${disabled ? "opacity-50" : ""} transition-colors`
                 }
               >
                 {({ selected: isSelected, active }) => (
@@ -117,13 +167,13 @@ function MultiSelect({
                     {isSelected ? (
                       <span
                         className={`absolute inset-y-0 left-0 flex items-center pl-3 ${
-                          active ? "text-white" : "text-blue-600"
+                          active ? "text-foreground" : "text-muted-foreground"
                         }`}
                       >
                         <CheckIcon className="h-5 w-5" />
                       </span>
                     ) : null}
-                    <span className="block text-xs text-gray-500">
+                    <span className="block text-xs text-muted-foreground">
                       {role.description}
                     </span>
                   </>
@@ -155,7 +205,7 @@ function DepositModal({ open, onClose, onDeposit }: DepositModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px] bg-black text-white">
+      <DialogContent className="sm:max-w-[425px] bg-background text-foreground">
         <DialogHeader>
           <DialogTitle>Deposit SOM</DialogTitle>
           <DialogDescription>
@@ -184,7 +234,6 @@ function DepositModal({ open, onClose, onDeposit }: DepositModalProps) {
               onDeposit(amount)
               onClose()
             }}
-            className="bg-white text-black"
             disabled={!amount || parseFloat(amount) <= 0}
           >
             Deposit
@@ -206,10 +255,10 @@ function PrivateKeyModal({
 }: PrivateKeyModalProps) {
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px] bg-black text-white">
+      <DialogContent className="sm:max-w-[425px] bg-background text-foreground">
         <DialogHeader>
           <DialogTitle>Save Your Wallet Details</DialogTitle>
-          <DialogDescription className="text-red-500">
+          <DialogDescription className="text-destructive">
             Important: Save these details now. The private key will never be
             shown again!
           </DialogDescription>
@@ -218,19 +267,46 @@ function PrivateKeyModal({
           <div className="space-y-4">
             <div>
               <Label>Wallet Address</Label>
-              <Input
-                readOnly
-                value={walletAddress}
-                className="font-mono text-sm"
-              />
+              <div className="relative">
+                <Input
+                  readOnly
+                  value={walletAddress}
+                  className="font-mono text-sm pr-10"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(walletAddress)
+                    alert("Wallet address copied to clipboard!")
+                  }}
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <div>
               <Label>Private Key</Label>
-              <Input
-                readOnly
-                value={privateKey}
-                className="font-mono text-sm"
-              />
+              <div className="relative">
+                <Input
+                  readOnly
+                  value={privateKey}
+                  className="font-mono text-sm pr-10"
+                  type="password"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(privateKey)
+                    alert("Private key copied to clipboard!")
+                  }}
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -241,7 +317,6 @@ function PrivateKeyModal({
               navigator.clipboard.writeText(text)
               alert("Wallet details copied to clipboard!")
             }}
-            className="bg-white text-black"
           >
             Copy All to Clipboard
           </Button>
@@ -323,156 +398,242 @@ export default function PermissionsPanel({
 
   return (
     <div className="mt-8 space-y-6">
-      <h2 className="text-2xl font-semibold">Permissions</h2>
+      <div className="flex items-center gap-2 mb-4">
+        <ShieldIcon className="h-6 w-6 text-muted-foreground" />
+        <h2 className="text-2xl font-semibold">Permissions Management</h2>
+      </div>
 
       {canGrantAnyRole && (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-end">
-            <div className="flex-1">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold">Grant Permissions</CardTitle>
+            <CardDescription>
+              Add new wallets or grant roles to existing wallets
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4">
               <div className="mb-4">
                 <Label className="mb-2">Wallet Type</Label>
                 <div className="flex gap-4">
                   <Button
                     variant={!createNewWallet ? "default" : "outline"}
                     onClick={() => setCreateNewWallet(false)}
-                    className={!createNewWallet ? "bg-white text-black" : ""}
                   >
+                    <WalletIcon className="h-4 w-4 mr-2" />
                     Existing Wallet
                   </Button>
                   <Button
                     variant={createNewWallet ? "default" : "outline"}
                     onClick={() => setCreateNewWallet(true)}
-                    className={createNewWallet ? "bg-white text-black" : ""}
                   >
+                    <PlusIcon className="h-4 w-4 mr-2" />
                     Create New Wallet
                   </Button>
                 </div>
               </div>
-              {!createNewWallet && (
-                <>
-                  <Label htmlFor="new-address">Wallet Address</Label>
-                  <Input
-                    id="new-address"
-                    value={newAddress}
-                    onChange={(e) => setNewAddress(e.target.value)}
-                    placeholder="Enter wallet address"
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  {!createNewWallet ? (
+                    <>
+                      <Label htmlFor="new-address" className="mb-2 block">Wallet Address</Label>
+                      <Input
+                        id="new-address"
+                        value={newAddress}
+                        onChange={(e) => setNewAddress(e.target.value)}
+                        placeholder="Enter wallet address (0x...)"
+                        className="font-mono"
+                      />
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Enter the wallet address to grant permissions
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex items-center h-full">
+                      <div className="text-sm text-muted-foreground bg-accent/5 p-4 rounded-md border border-accent/10">
+                        <InfoIcon className="h-5 w-5 text-muted-foreground inline mr-2" />
+                        A new wallet will be generated with a private key. Make sure to save the private key when prompted.
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div>
+                  <Label className="mb-2 block">Roles to Grant</Label>
+                  <MultiSelect
+                    options={ROLES}
+                    selected={selectedRoles}
+                    onChange={setSelectedRoles}
                   />
-                  <p className="text-sm text-gray-500">
-                    Enter wallet address to grant permissions
-                  </p>
-                </>
-              )}
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {selectedRoles.map(roleKey => (
+                      <RoleBadge key={roleKey} roleKey={roleKey} />
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="flex-1">
-              <Label>Roles</Label>
-              <MultiSelect
-                options={ROLES}
-                selected={selectedRoles}
-                onChange={setSelectedRoles}
-              />
-            </div>
+          </CardContent>
+          <CardFooter className="justify-end">
             <Button
               onClick={handleGrantRoles}
               disabled={
                 (!createNewWallet && !newAddress) || selectedRoles.length === 0
               }
-              className="whitespace-nowrap bg-white text-black"
             >
+              <ShieldIcon className="h-4 w-4 mr-2" />
               Grant Roles
             </Button>
-          </div>
-        </div>
+          </CardFooter>
+        </Card>
       )}
 
-      <div className="border border-gray-300 rounded p-4">
-        {permissions.map((permission) => (
-          <div
-            key={permission.walletAddress}
-            className={`mb-4 p-4 border-b border-gray-200 flex justify-between items-center`}
-          >
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-base">
-                  {permission.walletAddress}{" "}
-                  {permission.isOwner && (
-                    <span className="ml-2 rounded bg-blue-500 px-2 py-1 text-xs text-black">
-                      Owner
-                    </span>
-                  )}
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle className="text-lg font-semibold">
+              Wallet Permissions
+              <Badge variant="outline" className="ml-2">
+                {permissions.length} wallets
+              </Badge>
+            </CardTitle>
+          </div>
+          <CardDescription>
+            Manage existing wallet permissions and balances
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {permissions.length === 0 ? (
+              <div className="flex items-center justify-center h-[200px] border rounded-md bg-accent/5">
+                <p className="text-sm text-muted-foreground">
+                  No wallets with permissions found
                 </p>
-                <span className="text-sm text-gray-400">
-                  Balance:{" "}
-                  {permission.balance ? formatEther(permission.balance) : "0"}{" "}
-                  SOM
-                </span>
-                <Button
-                  onClick={() => {
-                    setDepositTargetAddress(permission.walletAddress as Address)
-                    setShowDepositModal(true)
-                  }}
-                  className="ml-2 bg-green-600 hover:bg-green-700"
-                  size="sm"
-                >
-                  Deposit SOM
-                </Button>
               </div>
-              <div className="mt-2">
-                {/* For each identity, we allow updating their roles via a MultiSelect. */}
-                <MultiSelect
-                  options={ROLES}
-                  selected={permission.roles}
-                  onChange={async (newRoles: number[]) => {
-                    if (permission.isOwner) return
-                    const addedRoles = newRoles.filter(
-                      (r) => !permission.roles.includes(r),
-                    )
-                    const removedRoles = permission.roles.filter(
-                      (r) => !newRoles.includes(r),
-                    )
+            ) : (
+              <ScrollArea className="h-[400px] border rounded-md">
+                <div className="p-4 space-y-4">
+                  {permissions.map((permission, index) => (
+                    <div key={permission.walletAddress}>
+                      <div className="bg-accent/5 rounded-lg p-4 border border-accent/10 hover:border-accent/20 transition-all">
+                        <div className="flex flex-col md:flex-row justify-between gap-4">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {permission.isOwner && (
+                                <Badge>Owner</Badge>
+                              )}
+                              <div className="font-mono text-sm flex items-center">
+                                {truncateAddress(permission.walletAddress)}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 ml-1"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(permission.walletAddress)
+                                    alert("Address copied to clipboard!")
+                                  }}
+                                >
+                                  <CopyIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {permission.roles.map(roleKey => (
+                                <RoleBadge key={roleKey} roleKey={roleKey} />
+                              ))}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3">
+                            <div className="text-sm bg-background px-3 py-1 rounded-md border border-input">
+                              <span className="text-muted-foreground">Balance: </span>
+                              <span className="font-mono">
+                                {permission.balance ? formatEther(permission.balance) : "0"} SOM
+                              </span>
+                            </div>
+                            
+                            <Button
+                              onClick={() => {
+                                setDepositTargetAddress(permission.walletAddress as Address)
+                                setShowDepositModal(true)
+                              }}
+                              size="sm"
+                            >
+                              Deposit
+                            </Button>
+                            
+                            {!permission.isOwner && (
+                              <Button
+                                onClick={() => {
+                                  if (confirm("Are you sure you want to revoke this identity? This action cannot be undone.")) {
+                                    revokeIdentity(permission.walletAddress as Address)
+                                  }
+                                }}
+                                variant="destructive"
+                                title="Revoke Identity"
+                                size="icon"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {!permission.isOwner && (
+                          <div className="mt-4">
+                            <Label className="text-sm text-muted-foreground mb-2 block">Manage Roles</Label>
+                            <MultiSelect
+                              options={ROLES}
+                              selected={permission.roles}
+                              onChange={async (newRoles: number[]) => {
+                                if (permission.isOwner) return
+                                const addedRoles = newRoles.filter(
+                                  (r) => !permission.roles.includes(r),
+                                )
+                                const removedRoles = permission.roles.filter(
+                                  (r) => !newRoles.includes(r),
+                                )
 
-                    try {
-                      for (const role of addedRoles) {
-                        await grantRole(
-                          permission.walletAddress as Address,
-                          role,
-                        )
-                      }
-                      for (const role of removedRoles) {
-                        await revokeRole(
-                          permission.walletAddress as Address,
-                          role,
-                        )
-                      }
+                                try {
+                                  for (const role of addedRoles) {
+                                    await grantRole(
+                                      permission.walletAddress as Address,
+                                      role,
+                                    )
+                                  }
+                                  for (const role of removedRoles) {
+                                    await revokeRole(
+                                      permission.walletAddress as Address,
+                                      role,
+                                    )
+                                  }
 
-                      await fetchPermissionsData()
-                    } catch (error) {
-                      console.error("Error updating roles:", error)
-                      alert(
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to update roles",
-                      )
-                    }
-                  }}
-                  disabled={permission.isOwner}
-                />
-              </div>
-            </div>
-            {!permission.isOwner && (
-              <Button
-                onClick={() =>
-                  revokeIdentity(permission.walletAddress as Address)
-                }
-                variant="destructive"
-                title="Revoke Identity"
-                size="icon"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </Button>
+                                  await fetchPermissionsData()
+                                } catch (error) {
+                                  console.error("Error updating roles:", error)
+                                  alert(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Failed to update roles",
+                                  )
+                                }
+                              }}
+                              disabled={permission.isOwner}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {index < permissions.length - 1 && <Separator className="my-4" />}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
             )}
           </div>
-        ))}
-      </div>
+        </CardContent>
+      </Card>
 
       <PrivateKeyModal
         open={showPrivateKeyModal}

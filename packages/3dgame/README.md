@@ -16,7 +16,7 @@ Add the following event to the source:
 event PlayerUpdate(int256 posX, int256 posY, int256 posZ, string color, string name, string playerId, uint256 timestamp)
 ```
 
-which is used by [`src/app/page.tsx`](./src/app/page.tsx) to send and receive updates from the blockchain. In the file, modify the `sourceAddress` to the address of the source you created in step 1.
+which is used by [`src/app/page.tsx`](./src/app/page.tsx) to send and receive updates from the blockchain.
 
 ```tsx
 // read:
@@ -42,6 +42,12 @@ Configure the EtherbaseConfig in [`src/app/etherbaseConfig.ts`](./src/app/etherb
 
 ```ts
 privateKey: "0x..."
+```
+
+and set the source address to your source address with the PlayerUpdate event in step 2:
+
+```ts
+const sourceAddress = "0x..."
 ```
 
 5. Run the game

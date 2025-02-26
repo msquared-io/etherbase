@@ -49,7 +49,7 @@ var MULTICALL_3_ABI = `[{
 // In practice, you'd need a compiled "multicall" contract ABI/binding
 // and do aggregated calls.
 
-func ExecuteMulticall(ctx context.Context, queries []MulticallQuery, requireSuccess bool) (*MulticallResult, error) {
+func ExecuteMulticall(ctx context.Context, queries []MulticallQuery, requireSuccess bool, blockNumber *big.Int) (*MulticallResult, error) {
 	ethClient := client.GetManager().Client()
 	
 	// Parse the ABI
@@ -85,7 +85,7 @@ func ExecuteMulticall(ctx context.Context, queries []MulticallQuery, requireSucc
 	}
 
 	// Execute the call
-	output, err := ethClient.CallContract(ctx, msg, nil)
+	output, err := ethClient.CallContract(ctx, msg, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("multicall failed: %w", err)
 	}
@@ -97,8 +97,8 @@ func ExecuteMulticall(ctx context.Context, queries []MulticallQuery, requireSucc
 	}
 
 	// Parse the results
-	blockNumber := result[0].(*big.Int)
-	blockHash := result[1].([32]byte)
+	resultBlockNumber := result[0].(*big.Int)
+	resultBlockHash := result[1].([32]byte)
 	returnData := result[2].([]struct {
 		Success    bool    `json:"success"`
 		ReturnData []uint8 `json:"returnData"`
@@ -113,9 +113,13 @@ func ExecuteMulticall(ctx context.Context, queries []MulticallQuery, requireSucc
 		}
 	}
 
+	if blockNumber != nil && resultBlockNumber.Cmp(blockNumber) < 0 {
+		return nil, fmt.Errorf("block number too old: %v < %v", resultBlockNumber, blockNumber)
+	}
+
 	return &MulticallResult{
-		BlockNumber: blockNumber,
-		BlockHash:   blockHash,    // Add BlockHash to the result
+		BlockNumber: resultBlockNumber,
+		BlockHash:   resultBlockHash,    // Add BlockHash to the result
 		Results:     callResults,
 	}, nil
 }

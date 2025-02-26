@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { AbiEvent, AbiParameter, Address } from "viem"
 import {
   encodeAbiParameters,
@@ -27,6 +27,9 @@ export default function useEtherbaseSource({
   const { httpReaderUrl, wsReaderUrl, wsWriterUrl, useBackend, privateKey } =
     getConfig()
   const { publicClient, getWalletClient } = useWebThree()
+  const [eventDefinitions, setEventDefinitions] = useState<
+    { name: string; args: Argument[] }[]
+  >([])
 
   const getWalletClientInternal = useCallback(async () => {
     const walletClient = await getWalletClient()
@@ -378,20 +381,33 @@ export default function useEtherbaseSource({
     [useBackend, setValueBackend, setValueBrowser],
   )
 
-  const [eventDefinitions, setEventDefinitions] = useState<EventDefinition[]>(
-    [],
-  )
-
   const fetchEventDefinitions = useCallback(async () => {
-    const data = await fetchEventDefinitionsData(sourceAddress)
-    setEventDefinitions(data)
+    if (!sourceAddress) return
+
+    try {
+      const definitions = await fetchEventDefinitionsData(sourceAddress)
+      setEventDefinitions(definitions)
+    } catch (error) {
+      console.error("Error fetching event definitions:", error)
+    }
   }, [sourceAddress])
 
+  // Poll for event definitions every second
+  useEffect(() => {
+    fetchEventDefinitions()
+
+    const intervalId = setInterval(() => {
+      fetchEventDefinitions()
+    }, 1000)
+
+    return () => clearInterval(intervalId)
+  }, [fetchEventDefinitions])
+
   return {
-    registerEvent: registerEventBrowser,
-    emitEvent,
-    setValue,
     eventDefinitions,
     fetchEventDefinitions,
+    registerEvent: registerEventBrowser,
+    emitEvent: useBackend ? emitEventBackend : emitEventBrowser,
+    setValue: useBackend ? setValueBackend : setValueBrowser,
   }
 }

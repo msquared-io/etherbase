@@ -221,7 +221,8 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
         signStart := time.Now()
         signedTx, err := types.SignTx(tx, tp.signer, privKey)
         if err != nil {
-            log.Fatalf("Failed to sign transaction %d: %v", i, err)
+            log.Printf("Failed to sign transaction %d: %v", i, err)
+            continue
         }
         stats.SigningTime += time.Since(signStart)
 
@@ -229,7 +230,8 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
         marshalStart := time.Now()
         rawTx, err := signedTx.MarshalBinary()
         if err != nil {
-            log.Fatalf("Failed to marshal transaction %d: %v", i, err)
+            log.Printf("Failed to marshal transaction %d: %v", i, err)
+            continue
         }
         txHex := "0x" + hex.EncodeToString(rawTx)
         stats.MarshalTime += time.Since(marshalStart)
@@ -243,7 +245,7 @@ func (tp *TransactionPool) processBatch(batch []TxRequest) {
 
     txResults := make([]TxResult, 0, len(preparedTxs))
     
-    // Send all prepared transactions while holding the lock
+    // Send all prepared transactions
     for _, prepared := range preparedTxs {
         sendStart := time.Now()
 
@@ -311,8 +313,6 @@ func (tp *TransactionPool) monitorTransactionReceipts(txResults []TxResult) {
                 continue
             }
 
-            // log.Printf("Receipt: %v", receipt)
-
             if receipt == nil {
                 // Transaction still pending
                 pendingTxs = append(pendingTxs, txResult)
@@ -351,4 +351,7 @@ func (tp *TransactionPool) monitorTransactionReceipts(txResults []TxResult) {
 
 func (tp *TransactionPool) Stop() {
     close(tp.stopCh)
+    if client != nil {
+        client.Close()
+    }
 }

@@ -8,7 +8,7 @@ export async function fetchSourcesData(config?: EtherbaseConfig) {
     cache: "no-store",
   })
   const data = await response.json()
-  console.log("response", data)
+
   return data
 }
 
@@ -19,6 +19,6 @@ export async function fetchCustomContractsData(config?: EtherbaseConfig) {
     cache: "no-store",
   })
   const data = await response.json()
-  console.log("response", data)
+
   return data
 }

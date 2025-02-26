@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"reflect"
 	"sync"
 
@@ -32,11 +33,11 @@ func GetManager() *StateManager {
 }
 
 // FetchStateForSubscriptions fetches and returns state for given subscriptions
-func (sm *StateManager) 	FetchStateForSubscriptions(ctx context.Context, stateSubscriptions map[types.ClientID][]types.SubscriptionID) (map[types.SubscriptionID]map[string]interface{}, uint64, error) {
+func (sm *StateManager) FetchStateForSubscriptions(ctx context.Context, stateSubscriptions map[types.ClientID][]types.SubscriptionID, blockNumber *big.Int) (map[types.SubscriptionID]map[string]interface{}, uint64, error) {
 	uniqueSubscriptions := sm.getCompactUniqueStateSubscriptions(stateSubscriptions)
 
 	// Fetch state from chain
-	result, err := sm.fetchStateFromChain(ctx, uniqueSubscriptions)
+	result, err := sm.fetchStateFromChain(ctx, uniqueSubscriptions, blockNumber)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -45,7 +46,7 @@ func (sm *StateManager) 	FetchStateForSubscriptions(ctx context.Context, stateSu
 		return nil, 0, nil
 	}
 
-	log.Printf("Fetched %d states, %v, %v\n", len(result.States), stateSubscriptions, result.States)
+	// log.Printf("Fetched %d states, %v, %v\n", len(result.States), stateSubscriptions, result.States)
 
 	// Build state updates for each subscription
 	stateUpdates := sm.buildStateUpdatesForSubscriptions(stateSubscriptions, result.States)
@@ -97,7 +98,7 @@ func (sm *StateManager) getCompactUniqueStateSubscriptions(stateSubscriptions ma
 	return result
 }
 
-func (sm *StateManager) fetchStateFromChain(ctx context.Context, stateSubscriptions map[common.Address][][]string) (*BatchFetchResult, error) {
+func (sm *StateManager) fetchStateFromChain(ctx context.Context, stateSubscriptions map[common.Address][][]string, blockNumber *big.Int) (*BatchFetchResult, error) {
 	requests := make([]StateFetchRequest, 0)
 	
 	for contractAddr, paths := range stateSubscriptions {
@@ -109,7 +110,7 @@ func (sm *StateManager) fetchStateFromChain(ctx context.Context, stateSubscripti
 		}
 	}
 
-	return BatchFetchContractStates(ctx, requests)
+	return BatchFetchContractStates(ctx, requests, blockNumber)
 }
 
 func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map[types.ClientID][]types.SubscriptionID, states []StateFetchResponse) map[types.SubscriptionID]map[string]interface{} {
@@ -145,6 +146,7 @@ func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map
 			}
 
 			for _, path := range stateSub.StatePaths {
+				// log.Printf("sub: %v, path: %v", stateSub, path)
 				contractCurrentValue := getValueAtPath(subscriberContractStateVal, path)
 				isValueUpdated := false
 				var updatedValue interface{}
@@ -152,6 +154,7 @@ func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map
 				for _, state := range states {
 					if state.ContractAddress == stateSub.ContractAddress {
 						updatedValue = getValueAtPath(state.State, path)
+						// log.Printf("state: %v, updatedValue: %v, currentValue: %v", state, updatedValue, contractCurrentValue)
 						if updatedValue != nil {
 							isValueUpdated = !reflect.DeepEqual(updatedValue, contractCurrentValue)
 							if isValueUpdated {
@@ -161,6 +164,7 @@ func (sm *StateManager) buildStateUpdatesForSubscriptions(stateSubscriptions map
 					}
 				}
 
+				// log.Printf("isValueUpdated: %v, fullStateUpdateOnChange: %v", isValueUpdated, fullStateUpdateOnChange)
 				if fullStateUpdateOnChange || isValueUpdated {
 					if updates[subID] == nil {
 						updates[subID] = make(map[string]interface{})

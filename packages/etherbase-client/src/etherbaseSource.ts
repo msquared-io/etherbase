@@ -12,6 +12,6 @@ export async function fetchEventDefinitionsData(
     `${httpReaderUrl}/event-definitions?sourceAddress=${sourceAddress}`,
     { cache: "no-store" },
   )
-  console.log("response", response)
+
   return response.json()
 }

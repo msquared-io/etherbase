@@ -5,20 +5,18 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/msquared-io/etherbase/backend/internal/client"
 	"github.com/msquared-io/etherbase/backend/internal/integration/go/etherbase"
 	"github.com/msquared-io/etherbase/backend/internal/integration/go/etherbasesource"
 )
 
-// SourceRegistry listens to SourceCreated events from the etherbase contract
-// and keeps track of additional addresses. It also notifies watchers about new sources.
+// SourceRegistry polls the etherbase contract for sources and custom contracts
+// and keeps track of them. It also notifies watchers about new sources.
 type SourceRegistry struct {
     etherbaseAddress      common.Address
     customContracts       sync.Map // key: common.Address (contract), value: CustomContract
@@ -26,9 +24,9 @@ type SourceRegistry struct {
     sources     sync.Map // key: common.Address (source), value: common.Address (owner)
     sourcesSubs   []chan []SourceInfo
     customContractsSubs   []chan []etherbase.EtherbaseCustomContract
-    stopWatch    context.CancelFunc
-    watchDone    sync.WaitGroup
-    watchOnce    sync.Once
+    stopPolling    context.CancelFunc
+    pollingDone    sync.WaitGroup
+    pollingOnce    sync.Once
     mu           sync.Mutex // kept only for updateSubs slice operations
 }
 
@@ -40,7 +38,7 @@ func NewSourceRegistry(etherbaseAddress common.Address) *SourceRegistry {
         sourceRegistryInstance = &SourceRegistry{
             etherbaseAddress:      etherbaseAddress,
         }
-        sourceRegistryInstance.startWatch()
+        sourceRegistryInstance.startPolling()
 		sourceRegistryInstance.loadInitialSources()
         sourceRegistryInstance.loadInitialCustomContracts()
     })
@@ -85,69 +83,110 @@ func (sr *SourceRegistry) loadInitialCustomContracts() {
 	}
 }
 
-func (sr *SourceRegistry) startWatch() {
+func (sr *SourceRegistry) startPolling() {
     ctx, cancel := context.WithCancel(context.Background())
-    sr.stopWatch = cancel
-    sr.watchDone.Add(1)
+    sr.stopPolling = cancel
+    sr.pollingDone.Add(1)
 
     go func() {
-        defer sr.watchDone.Done()
+        defer sr.pollingDone.Done()
+        ticker := time.NewTicker(1 * time.Second)
+        defer ticker.Stop()
 
-        logsChan := make(chan types.Log)
-        sub, err := sr.subscribeEtherbaseLogs(ctx, logsChan)
-        if err != nil {
-            log.Printf("Error subscribing to Etherbase logs for source registry: %v", err)
-            return
-        }
-        defer sub.Unsubscribe()
-
-        // Define the event topic hash once
-        sourceCreatedTopic := crypto.Keccak256Hash([]byte("SourceCreated(address,address)"))
-        customContractAddedTopic := crypto.Keccak256Hash([]byte("CustomContractAdded(address)"))
-        customContractDeletedTopic := crypto.Keccak256Hash([]byte("CustomContractDeleted(address)"))
+        log.Printf("[source registry] Starting polling for sources and custom contracts every 1 second")
 
         for {
             select {
-            case l := <-logsChan:
-                if l.Topics[0] == sourceCreatedTopic {
-                    sourceAddr := common.BytesToAddress(l.Topics[1].Bytes()) 
-                    owner := common.BytesToAddress(l.Topics[2].Bytes())
-                    sr.addSource(sourceAddr, owner)
-                } else if l.Topics[0] == customContractAddedTopic {
-                    contractAddr := common.BytesToAddress(l.Topics[1].Bytes())
-                    manager := client.GetManager()
-                    etherbaseContract, err := etherbase.NewEtherbase(sr.etherbaseAddress, manager.Client())
-                    if err != nil {
-                        log.Printf("Failed to create etherbase contract: %v", err)
-                        return
-                    }
-                    contract, err := etherbaseContract.GetCustomContract(&bind.CallOpts{}, contractAddr)
-                    if err != nil {
-                        log.Printf("failed to get custom contract: %v", err)
-                    }
-                        
-                    sr.addCustomContract(contract)
-                } else if l.Topics[0] == customContractDeletedTopic {
-                    contractAddr := common.BytesToAddress(l.Topics[1].Bytes())
-                    sr.deleteCustomContract(contractAddr)
-                }
-            case err := <-sub.Err():
-                log.Printf("SourceRegistry subscription error: %v", err)
-                // return // dont return as we want to keep the subscription alive and retry
             case <-ctx.Done():
+                log.Printf("[source registry] Polling stopped")
                 return
+            case <-ticker.C:
+                sr.pollForUpdates()
             }
         }
     }()
 }
 
-func (sr *SourceRegistry) subscribeEtherbaseLogs(ctx context.Context, logsChan chan<- types.Log) (ethereum.Subscription, error) {
+func (sr *SourceRegistry) pollForUpdates() {
+    // Poll for new sources
     manager := client.GetManager()
-    filter := ethereum.FilterQuery{
-        Addresses: []common.Address{sr.etherbaseAddress},
-        Topics:    [][]common.Hash{},
+    etherbaseContract, err := etherbase.NewEtherbase(sr.etherbaseAddress, manager.Client())
+    if err != nil {
+        log.Printf("[source registry] Failed to create etherbase contract: %v", err)
+        return
     }
-    return manager.Client().SubscribeFilterLogs(ctx, filter, logsChan)
+
+    // Check for new sources
+    sources, err := etherbaseContract.GetSources(&bind.CallOpts{})
+    if err != nil {
+        log.Printf("[source registry] Failed to get sources: %v", err)
+        return
+    }
+
+    // Track if we found any new sources
+    foundNewSources := false
+    for _, source := range sources {
+        if _, loaded := sr.sources.LoadOrStore(source.SourceAddress, source.Owner); !loaded {
+            log.Printf("[source registry] Found new source: address=%s owner=%s", 
+                source.SourceAddress.Hex(), 
+                source.Owner.Hex())
+            foundNewSources = true
+        }
+    }
+
+    // Notify if we found new sources
+    if foundNewSources {
+        sr.notifySources()
+    }
+
+    // Check for new custom contracts
+    customContracts, err := etherbaseContract.GetCustomContracts(&bind.CallOpts{})
+    if err != nil {
+        log.Printf("[source registry] Failed to get custom contracts: %v", err)
+        return
+    }
+
+    // Track if we found any new custom contracts
+    foundNewCustomContracts := false
+    
+    // Create a map of existing contract addresses for quick lookup
+    existingContracts := make(map[common.Address]bool)
+    sr.customContracts.Range(func(key, value interface{}) bool {
+        existingContracts[key.(common.Address)] = true
+        return true
+    })
+    
+    // Check for new contracts
+    for _, contract := range customContracts {
+        if !existingContracts[contract.ContractAddress] {
+            sr.customContracts.Store(contract.ContractAddress, contract)
+            log.Printf("[source registry] Found new custom contract: %s", contract.ContractAddress.Hex())
+            foundNewCustomContracts = true
+        }
+    }
+    
+    // Check for deleted contracts
+    sr.customContracts.Range(func(key, value interface{}) bool {
+        contractAddr := key.(common.Address)
+        found := false
+        for _, contract := range customContracts {
+            if contract.ContractAddress == contractAddr {
+                found = true
+                break
+            }
+        }
+        if !found {
+            sr.customContracts.Delete(contractAddr)
+            log.Printf("[source registry] Custom contract deleted: %s", contractAddr.Hex())
+            foundNewCustomContracts = true
+        }
+        return true
+    })
+
+    // Notify if we found new or deleted custom contracts
+    if foundNewCustomContracts {
+        sr.notifyCustomContracts()
+    }
 }
 
 func (sr *SourceRegistry) addSource(addr common.Address, owner common.Address) {
@@ -235,9 +274,9 @@ func (sr *SourceRegistry) IsSource(addr common.Address) bool {
 }
 
 func (sr *SourceRegistry) Stop() {
-    sr.watchOnce.Do(func() {
-        sr.stopWatch()
-        sr.watchDone.Wait()
+    sr.pollingOnce.Do(func() {
+        sr.stopPolling()
+        sr.pollingDone.Wait()
     })
 }
 

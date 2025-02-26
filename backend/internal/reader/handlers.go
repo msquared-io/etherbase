@@ -27,10 +27,20 @@ func expandPaths(paths []interface{}) []types.StatePath {
 		if arr, ok := p.([]interface{}); ok {
 			pathArrays[i] = make([]string, len(arr))
 			for j, a := range arr {
-				pathArrays[i][j] = a.(string)
+				// Strip leading and ending quotation marks from the string
+				str := a.(string)
+				if len(str) >= 2 && str[0] == '"' && str[len(str)-1] == '"' {
+					str = str[1 : len(str)-1]
+				}
+				pathArrays[i][j] = str
 			}
 		} else {
-			pathArrays[i] = []string{p.(string)}
+			// Also strip quotation marks from single string paths
+			str := p.(string)
+			if len(str) >= 2 && str[0] == '"' && str[len(str)-1] == '"' {
+				str = str[1 : len(str)-1]
+			}
+			pathArrays[i] = []string{str}
 		}
 	}
 	return cartesianProduct(pathArrays)
@@ -335,10 +345,16 @@ func handleStateSubscription(conn *websocket.Conn, client *subscription.Client, 
 			map[types.ClientID][]types.SubscriptionID{
 				client.ID: {types.SubscriptionID(subID)},
 			},
+			nil, // most recent block number
 		)
 		fmt.Println("initial state updates", updates)
 		if err != nil {
 			log.Printf("Error fetching initial state: %v", err)
+
+			sendMessage(conn, "error", map[string]interface{}{
+				"subscriptionId": subID,
+				"error":          "Error fetching initial state: " + err.Error(),
+			})
 			return
 		}
 

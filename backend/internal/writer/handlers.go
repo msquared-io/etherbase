@@ -191,6 +191,10 @@ func indexOf(slice []string, item string) int {
 }
 
 func handleRemovingSubEntries(batchSetValues *[]types.BatchSetValue, allSegments []string, entries []etherbasesource.EtherDatabaseLibNode) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
 	for _, batchSetValue := range *batchSetValues {
 		// for each path, we need to check to see if the path below it is set. we need to get all entries that may be affected by this change
 		// e.g. if the existing path is ["users", "alice", ["name, "age"]] and we set ["users"] to NONE, we need to remove all entries under ["users", "alice"]
@@ -222,8 +226,6 @@ func handleRemovingSubEntries(batchSetValues *[]types.BatchSetValue, allSegments
 		}
 
 		encodedPath := encodeSegmentIndices(segmentIndices)
-		// remove last byte from encodedPath as its null-terminated but we're doing prefix match
-		encodedPath = encodedPath[:len(encodedPath)-1]
 
 		// if this is an exact match, we need to remove all subpaths so skip
 		skip := false
@@ -237,6 +239,9 @@ func handleRemovingSubEntries(batchSetValues *[]types.BatchSetValue, allSegments
 		if skip {
 			continue
 		}
+
+		// remove last byte from encodedPath as its null-terminated but we're doing prefix match
+		encodedPath = encodedPath[:len(encodedPath)-1]
 
 		// if this is a partial match, it means we're modifying a subpath of an existing path and so the existing path needs to be removed
 		for _, entry := range entries {
@@ -336,6 +341,111 @@ type AbiArgument struct {
 	Indexed bool `json:"indexed"`
 }
 
+// Helper function to convert string to big.Int
+func stringToBigInt(s string, allowNegative bool) (*big.Int, error) {
+	bigInt := new(big.Int)
+	_, success := bigInt.SetString(s, 0) // 0 means auto-detect base
+	if !success {
+		return nil, fmt.Errorf("invalid number format: %s", s)
+	}
+	
+	// Check if negative numbers are allowed
+	if !allowNegative && bigInt.Sign() < 0 {
+		return nil, fmt.Errorf("negative value not allowed for unsigned integer: %s", s)
+	}
+	
+	return bigInt, nil
+}
+
+// Helper function to convert string to bool
+func stringToBool(s string) (bool, error) {
+	s = strings.ToLower(s)
+	switch s {
+	case "true", "1", "yes", "y":
+		return true, nil
+	case "false", "0", "no", "n":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid boolean value: %s", s)
+	}
+}
+
+// Helper function to convert any value to the appropriate type based on ABI type
+func convertValueByType(value interface{}, typeName string, paramName string) (interface{}, error) {
+	// If value is nil, return an error
+	if value == nil {
+		return nil, fmt.Errorf("nil value provided for parameter %s", paramName)
+	}
+
+	// For numeric types, always convert to *big.Int
+	if strings.HasPrefix(typeName, "uint") || strings.HasPrefix(typeName, "int") {
+		// If already a *big.Int, return as is
+		if bigInt, ok := value.(*big.Int); ok {
+			return bigInt, nil
+		}
+		
+		// Handle string values
+		if strValue, ok := value.(string); ok {
+			allowNegative := strings.HasPrefix(typeName, "int")
+			return stringToBigInt(strValue, allowNegative)
+		}
+		
+		// Handle float64 values
+		if floatValue, ok := value.(float64); ok {
+			return big.NewInt(int64(floatValue)), nil
+		}
+		
+		// Handle int values
+		if intValue, ok := value.(int); ok {
+			return big.NewInt(int64(intValue)), nil
+		}
+		
+		// Handle int64 values
+		if int64Value, ok := value.(int64); ok {
+			return big.NewInt(int64Value), nil
+		}
+		
+		return nil, fmt.Errorf("cannot convert value of type %T to %s for parameter %s", value, typeName, paramName)
+	}
+	
+	// Handle other types
+	switch typeName {
+	case "string":
+		if strValue, ok := value.(string); ok {
+			return strValue, nil
+		}
+		// Convert non-string to string if possible
+		return fmt.Sprintf("%v", value), nil
+		
+	case "bool":
+		// If already a bool, return as is
+		if boolVal, ok := value.(bool); ok {
+			return boolVal, nil
+		}
+		// If string, try to convert to bool
+		if strValue, ok := value.(string); ok {
+			return stringToBool(strValue)
+		}
+		// If number, 0 is false, anything else is true
+		if floatValue, ok := value.(float64); ok {
+			return floatValue != 0, nil
+		}
+		
+	case "address":
+		// If already an address, return as is
+		if addr, ok := value.(common.Address); ok {
+			return addr, nil
+		}
+		// If string, convert to address
+		if strValue, ok := value.(string); ok {
+			return common.HexToAddress(strValue), nil
+		}
+	}
+	
+	// For any other type, return as is and let the ABI packer handle it
+	return value, nil
+}
+
 func encodeAbiParameters(args []string, values []interface{}) ([]byte, error) {
 	// Create cache key by joining args with a delimiter
 	cacheKey := strings.Join(args, "|")
@@ -368,7 +478,21 @@ func encodeAbiParameters(args []string, values []interface{}) ([]byte, error) {
 		abiArgsCache.Store(cacheKey, realArgs)
 	}
 
-	return realArgs.Pack(values...)
+	// Convert values to appropriate types based on ABI type
+	convertedValues := make([]interface{}, len(values))
+	for i, value := range values {
+		if i < len(args) {
+			converted, err := convertValueByType(value, args[i], "")
+			if err != nil {
+				return nil, err
+			}
+			convertedValues[i] = converted
+		} else {
+			convertedValues[i] = value
+		}
+	}
+
+	return realArgs.Pack(convertedValues...)
 }
 
 // Helper function to encode event parameters
@@ -399,36 +523,25 @@ func encodeEvent(contractAddr common.Address, eventName string, args map[string]
 		if arg.IsIndexed {
 			// Handle indexed parameters
 			var topicData []byte
+			
+			// Convert value to appropriate type
+			convertedValue, err := convertValueByType(value, arg.ArgType, arg.Name)
+			if err != nil {
+				return nil, nil, err
+			}
+			
 			switch arg.ArgType {
 			case "string":
-				strVal, ok := value.(string)
-				if !ok {
-					return nil, nil, fmt.Errorf("invalid string value for %s", arg.Name)
-				}
-				hash := crypto.Keccak256([]byte(strVal))
-				topicData = hash
+				strVal := convertedValue.(string)
+				topicData = crypto.Keccak256([]byte(strVal))
 			case "address":
-				addr, ok := value.(common.Address)
-				if !ok {
-					if strAddr, ok := value.(string); ok {
-						addr = common.HexToAddress(strAddr)
-					} else {
-						return nil, nil, fmt.Errorf("invalid address value for %s", arg.Name)
-					}
-				}
+				addr := convertedValue.(common.Address)
 				topicData = common.LeftPadBytes(addr.Bytes(), 32)
 			case "uint256", "int256":
-				numVal, ok := value.(float64)
-				if !ok {
-					return nil, nil, fmt.Errorf("invalid number value for %s", arg.Name)
-				}
-				bigInt := big.NewInt(int64(numVal))
+				bigInt := convertedValue.(*big.Int)
 				topicData = common.LeftPadBytes(bigInt.Bytes(), 32)
 			case "bool":
-				boolVal, ok := value.(bool)
-				if !ok {
-					return nil, nil, fmt.Errorf("invalid bool value for %s", arg.Name)
-				}
+				boolVal := convertedValue.(bool)
 				if boolVal {
 					topicData = common.LeftPadBytes([]byte{1}, 32)
 				} else {
@@ -440,8 +553,7 @@ func encodeEvent(contractAddr common.Address, eventName string, args map[string]
 					if !ok {
 						return nil, nil, fmt.Errorf("invalid bytes value for %s", arg.Name)
 					}
-					hash := crypto.Keccak256(bytesVal)
-					topicData = hash
+					topicData = crypto.Keccak256(bytesVal)
 				} else {
 					return nil, nil, fmt.Errorf("unsupported indexed parameter type: %s", arg.ArgType)
 				}
@@ -451,13 +563,6 @@ func encodeEvent(contractAddr common.Address, eventName string, args map[string]
 			// Handle non-indexed parameters
 			dataTypes = append(dataTypes, arg.ArgType)
 			dataValues = append(dataValues, value)
-		}
-	}
-
-	// if a data value is float64, convert to big.Int
-	for i, value := range dataValues {
-		if floatValue, ok := value.(float64); ok {
-			dataValues[i] = big.NewInt(int64(floatValue))
 		}
 	}
 
@@ -499,17 +604,35 @@ func handleExecuteContractMethod(conn *websocket.Conn, privateKey string, data j
 				// Convert map to ordered slice of args based on method inputs
 				inputArgs := make([]interface{}, len(method.Inputs))
 				for i, input := range method.Inputs {
-					inputArgs[i] = msg.Args[input.Name] 
-				}
-				log.Printf("inputArgs: %v", inputArgs)
-				args, err := method.Inputs.Pack(inputArgs...)
-				if err != nil {
-					return nil, err
-				}
-				log.Printf("args: %v", args)
+					argValue, exists := msg.Args[input.Name]
+					if !exists {
+						return nil, fmt.Errorf("missing parameter %s", input.Name)
+					}
 
+					log.Printf("argValue: %v, input: %v", argValue, input)
+					
+					// Convert value to appropriate type based on input type
+					converted, err := convertValueByType(argValue, input.Type.String(), input.Name)
+					if err != nil {
+						return nil, err
+					}
+					inputArgs[i] = converted
+				}
+				
+				log.Printf("inputArgs: %v", inputArgs)
+				
+				// Pack arguments directly using the method
+				packedData, err := method.Inputs.Pack(inputArgs...)
+				if err != nil {
+					log.Printf("Error packing arguments: %v", err)
+					return nil, fmt.Errorf("failed to pack arguments: %v", err)
+				}
+				
+				log.Printf("packed data: %v", packedData)
+
+				// so it spreads correctly
 				finalArgs := []interface{}{}
-				for _, arg := range args {
+				for _, arg := range packedData {
 					finalArgs = append(finalArgs, arg)
 				}
 
