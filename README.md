@@ -39,9 +39,10 @@ All player movement, names, and colors are synced across all clients using the b
 
 ### MML
 
-[`packages/mml-demo`](./packages/mml-demo) is [`etherbase-client`](./packages/etherbase-client) running within [MML](https://mml.io/), allowing for simple on-chain interaction on any platform that supports MML.
-More information about how to use and deploy this MML can be found in the [README of `packages/mml-demo`](./packages/mml-demo/README.md).
+The MML Etherbase Demo is now located in a separate repository: [`msquared-io/etherbase-mml-react-starter-project`](https://github.com/msquared-io/etherbase-mml-react-starter-project). 
+This project showcases [`etherbase-client`](./packages/etherbase-client) running within [MML](https://mml.io/), enabling simple on-chain interactions on any platform that supports MML.
 
+The MML Etherbase Demo is an example of a server that serves a live MML (Metaverse Markup Language) document built with React.
 
 ## Technical Overview
 
